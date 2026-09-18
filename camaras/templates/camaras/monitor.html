@@ -184,21 +184,31 @@ function colorPorClase(clase) {
     return colores[clase] || '#e6e8ee';
 }
 
+// Ancho máximo del frame que se manda a analizar. El video se ve a full
+// resolución en pantalla; para YOLO no hace falta: menos píxeles = menos
+// bytes que viajar por red y menos trabajo de reescalado en el servidor.
+const ANCHO_MAX_DETECCION = 960;
+
 async function enviarFrameADetectar() {
     if (!stream || detectando) return;
     detectando = true;
+    const t0 = performance.now();
     try {
-        canvasCaptura.width = video.videoWidth;
-        canvasCaptura.height = video.videoHeight;
-        canvasCaptura.getContext('2d').drawImage(video, 0, 0);
+        const escala = Math.min(1, ANCHO_MAX_DETECCION / video.videoWidth);
+        canvasCaptura.width = Math.round(video.videoWidth * escala);
+        canvasCaptura.height = Math.round(video.videoHeight * escala);
+        canvasCaptura.getContext('2d').drawImage(video, 0, 0, canvasCaptura.width, canvasCaptura.height);
+        const tCaptura = performance.now();
 
-        const blob = await new Promise(res => canvasCaptura.toBlob(res, 'image/jpeg', 0.8));
+        const blob = await new Promise(res => canvasCaptura.toBlob(res, 'image/jpeg', 0.75));
         if (!blob) return;
+        const tBlob = performance.now();
 
         const formData = new FormData();
         formData.append('frame', blob, 'frame.jpg');
 
         const resp = await fetch('/detectar/', { method: 'POST', body: formData });
+        const tFetch = performance.now();
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
         const data = await resp.json();
         if (data.error) throw new Error(data.error);
@@ -206,6 +216,16 @@ async function enviarFrameADetectar() {
         ultimasDetecciones = data.detecciones || [];
         infoVehiculos.textContent = ultimasDetecciones.length;
         dibujarDetecciones();
+        const tFin = performance.now();
+
+        console.log(
+            `[cliente] captura=${(tCaptura-t0).toFixed(0)}ms  ` +
+            `jpeg=${(tBlob-tCaptura).toFixed(0)}ms  ` +
+            `red+servidor=${(tFetch-tBlob).toFixed(0)}ms  ` +
+            `dibujo=${(tFin-tFetch).toFixed(0)}ms  ` +
+            `TOTAL=${(tFin-t0).toFixed(0)}ms  ` +
+            `(peso frame=${(blob.size/1024).toFixed(0)}KB)`
+        );
     } catch (err) {
         setMensaje('Error en detección IA: ' + err.message, true);
     } finally {
@@ -216,21 +236,24 @@ async function enviarFrameADetectar() {
 function dibujarDetecciones() {
     const ctx = overlay.getContext('2d');
     ctx.clearRect(0, 0, overlay.width, overlay.height);
-    // El overlay tiene el mismo tamaño en píxeles que el frame enviado (videoWidth/Height),
-    // así que las coordenadas que regresa el backend calzan directo, sin reescalar.
+    // El frame que se analiza puede ir más chico que el overlay (ver
+    // ANCHO_MAX_DETECCION), así que reescalamos las cajas de vuelta.
+    const factor = canvasCaptura.width ? overlay.width / canvasCaptura.width : 1;
     ultimasDetecciones.forEach(d => {
+        const x1 = d.x1 * factor, y1 = d.y1 * factor;
+        const x2 = d.x2 * factor, y2 = d.y2 * factor;
         const color = colorPorClase(d.clase);
         ctx.strokeStyle = color;
         ctx.lineWidth = 2;
-        ctx.strokeRect(d.x1, d.y1, d.x2 - d.x1, d.y2 - d.y1);
+        ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
 
         const etiqueta = `${d.clase} ${(d.confianza * 100).toFixed(0)}%`;
         ctx.font = '14px system-ui, sans-serif';
         const ancho = ctx.measureText(etiqueta).width + 8;
         ctx.fillStyle = color;
-        ctx.fillRect(d.x1, Math.max(0, d.y1 - 18), ancho, 18);
+        ctx.fillRect(x1, Math.max(0, y1 - 18), ancho, 18);
         ctx.fillStyle = '#0f1115';
-        ctx.fillText(etiqueta, d.x1 + 4, Math.max(12, d.y1 - 5));
+        ctx.fillText(etiqueta, x1 + 4, Math.max(12, y1 - 5));
     });
 }
 
