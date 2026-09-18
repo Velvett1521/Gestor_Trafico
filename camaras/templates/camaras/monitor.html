@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestor de Tráfico · Monitor</title>
+    <style>
+        :root {
+            --bg: #0f1115;
+            --panel: #181b22;
+            --borde: #272b35;
+            --texto: #e6e8ee;
+            --suave: #8b92a3;
+            --acento: #3b82f6;
+            --ok: #22c55e;
+            --error: #ef4444;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+            background: var(--bg);
+            color: var(--texto);
+        }
+        header {
+            padding: 16px 24px;
+            border-bottom: 1px solid var(--borde);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        header h1 { font-size: 18px; margin: 0; }
+        header a { color: var(--suave); font-size: 14px; text-decoration: none; }
+        main {
+            max-width: 1100px;
+            margin: 24px auto;
+            padding: 0 24px;
+            display: grid;
+            grid-template-columns: 1fr 280px;
+            gap: 20px;
+        }
+        @media (max-width: 800px) { main { grid-template-columns: 1fr; } }
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--borde);
+            border-radius: 10px;
+            padding: 16px;
+        }
+        .visor { position: relative; }
+        video {
+            width: 100%;
+            aspect-ratio: 16 / 9;
+            background: #000;
+            border-radius: 8px;
+            display: block;
+            object-fit: cover;
+        }
+        /* Aquí se dibujarán después las detecciones de la IA */
+        canvas#overlay {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+        .badge {
+            position: absolute;
+            top: 10px; left: 10px;
+            background: rgba(0,0,0,.6);
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            display: flex; align-items: center; gap: 6px;
+        }
+        .punto { width: 8px; height: 8px; border-radius: 50%; background: var(--suave); }
+        .punto.activo { background: var(--ok); }
+        .punto.error { background: var(--error); }
+        label { display: block; font-size: 12px; color: var(--suave); margin-bottom: 6px; }
+        select, button {
+            width: 100%;
+            padding: 10px 12px;
+            border-radius: 8px;
+            border: 1px solid var(--borde);
+            background: #0f1115;
+            color: var(--texto);
+            font-size: 14px;
+            margin-bottom: 12px;
+        }
+        button { cursor: pointer; background: var(--acento); border: none; font-weight: 600; }
+        button.sec { background: transparent; border: 1px solid var(--borde); font-weight: 400; }
+        button:disabled { opacity: .4; cursor: not-allowed; }
+        dl { margin: 0; font-size: 13px; }
+        dt { color: var(--suave); margin-top: 10px; }
+        dd { margin: 2px 0 0; font-variant-numeric: tabular-nums; }
+        #mensaje { font-size: 13px; color: var(--suave); min-height: 18px; }
+        #mensaje.error { color: var(--error); }
+        #capturas { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 12px; }
+        #capturas img { width: 100%; border-radius: 4px; }
+    </style>
+</head>
+<body>
+<header>
+    <h1>🚦 Gestor de Tráfico</h1>
+    <a href="/admin/">Administración</a>
+</header>
+
+<main>
+    <section class="panel">
+        <div class="visor">
+            <video id="video" autoplay playsinline muted></video>
+            <canvas id="overlay"></canvas>
+            <div class="badge"><span class="punto" id="punto"></span><span id="estadoBadge">Sin señal</span></div>
+        </div>
+        <p id="mensaje"></p>
+    </section>
+
+    <aside class="panel">
+        <label for="selector">Cámara</label>
+        <select id="selector"></select>
+
+        <label for="resolucion">Resolución</label>
+        <select id="resolucion">
+            <option value="640x480">640 × 480</option>
+            <option value="1280x720" selected>1280 × 720 (HD)</option>
+            <option value="1920x1080">1920 × 1080 (Full HD)</option>
+        </select>
+
+        <button id="btnIniciar">Iniciar cámara</button>
+        <button id="btnDetener" class="sec" disabled>Detener</button>
+        <button id="btnCaptura" class="sec" disabled>Tomar captura</button>
+
+        <dl>
+            <dt>Resolución real</dt><dd id="infoRes">—</dd>
+            <dt>FPS</dt><dd id="infoFps">—</dd>
+            <dt>Dispositivo</dt><dd id="infoDisp">—</dd>
+        </dl>
+
+        <div id="capturas"></div>
+    </aside>
+</main>
+
+<script>
+const video = document.getElementById('video');
+const overlay = document.getElementById('overlay');
+const selector = document.getElementById('selector');
+const resolucion = document.getElementById('resolucion');
+const btnIniciar = document.getElementById('btnIniciar');
+const btnDetener = document.getElementById('btnDetener');
+const btnCaptura = document.getElementById('btnCaptura');
+const mensaje = document.getElementById('mensaje');
+const punto = document.getElementById('punto');
+const estadoBadge = document.getElementById('estadoBadge');
+const infoRes = document.getElementById('infoRes');
+const infoFps = document.getElementById('infoFps');
+const infoDisp = document.getElementById('infoDisp');
+
+let stream = null;
+let contadorFrames = 0;
+let ultimoTick = performance.now();
+let rafId = null;
+
+function setMensaje(txt, esError = false) {
+    mensaje.textContent = txt;
+    mensaje.className = esError ? 'error' : '';
+}
+
+function setEstado(clase, texto) {
+    punto.className = 'punto ' + clase;
+    estadoBadge.textContent = texto;
+}
+
+async function listarCamaras() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setMensaje('Este navegador no soporta acceso a cámara, o la página no está en HTTPS/localhost.', true);
+        btnIniciar.disabled = true;
+        return;
+    }
+    try {
+        // Permiso previo: sin esto enumerateDevices() no devuelve nombres
+        const temp = await navigator.mediaDevices.getUserMedia({ video: true });
+        temp.getTracks().forEach(t => t.stop());
+    } catch (err) {
+        setMensaje(mensajeError(err), true);
+        setEstado('error', 'Sin permiso');
+        return;
+    }
+    const dispositivos = await navigator.mediaDevices.enumerateDevices();
+    const camaras = dispositivos.filter(d => d.kind === 'videoinput');
+    selector.innerHTML = '';
+    camaras.forEach((d, i) => {
+        const op = document.createElement('option');
+        op.value = d.deviceId;
+        op.textContent = d.label || `Cámara ${i + 1}`;
+        selector.appendChild(op);
+    });
+    if (!camaras.length) setMensaje('No se detectó ninguna cámara.', true);
+}
+
+function mensajeError(err) {
+    switch (err.name) {
+        case 'NotAllowedError': return 'Permiso denegado. Habilita la cámara en el candado de la barra de direcciones.';
+        case 'NotFoundError': return 'No se encontró ninguna cámara conectada.';
+        case 'NotReadableError': return 'La cámara está siendo usada por otra aplicación.';
+        case 'OverconstrainedError': return 'La cámara no soporta esa resolución. Prueba con otra.';
+        default: return 'Error al abrir la cámara: ' + err.message;
+    }
+}
+
+async function iniciar() {
+    detener();
+    const [w, h] = resolucion.value.split('x').map(Number);
+    try {
+        stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+                deviceId: selector.value ? { exact: selector.value } : undefined,
+                width: { ideal: w },
+                height: { ideal: h }
+            },
+            audio: false
+        });
+    } catch (err) {
+        setMensaje(mensajeError(err), true);
+        setEstado('error', 'Error');
+        return;
+    }
+    video.srcObject = stream;
+    await video.play();
+
+    const track = stream.getVideoTracks()[0];
+    const s = track.getSettings();
+    infoRes.textContent = `${s.width} × ${s.height}`;
+    infoDisp.textContent = track.label;
+    overlay.width = s.width;
+    overlay.height = s.height;
+
+    setEstado('activo', 'En vivo');
+    setMensaje('');
+    btnIniciar.disabled = true;
+    btnDetener.disabled = false;
+    btnCaptura.disabled = false;
+
+    contadorFrames = 0;
+    ultimoTick = performance.now();
+    bucleFrames();
+}
+
+function detener() {
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = null;
+    if (stream) {
+        stream.getTracks().forEach(t => t.stop());
+        stream = null;
+    }
+    video.srcObject = null;
+    overlay.getContext('2d').clearRect(0, 0, overlay.width, overlay.height);
+    setEstado('', 'Sin señal');
+    infoRes.textContent = infoFps.textContent = infoDisp.textContent = '—';
+    btnIniciar.disabled = false;
+    btnDetener.disabled = true;
+    btnCaptura.disabled = true;
+}
+
+// Bucle por frame: aquí se enganchará la IA más adelante
+function bucleFrames() {
+    contadorFrames++;
+    const ahora = performance.now();
+    if (ahora - ultimoTick >= 1000) {
+        infoFps.textContent = contadorFrames;
+        contadorFrames = 0;
+        ultimoTick = ahora;
+    }
+    // TODO (fase IA): tomar el frame, enviarlo al backend/worker y dibujar detecciones en #overlay
+    rafId = requestAnimationFrame(bucleFrames);
+}
+
+function tomarCaptura() {
+    const c = document.createElement('canvas');
+    c.width = video.videoWidth;
+    c.height = video.videoHeight;
+    c.getContext('2d').drawImage(video, 0, 0);
+    const img = new Image();
+    img.src = c.toDataURL('image/jpeg', 0.9);
+    document.getElementById('capturas').prepend(img);
+}
+
+btnIniciar.addEventListener('click', iniciar);
+btnDetener.addEventListener('click', detener);
+btnCaptura.addEventListener('click', tomarCaptura);
+window.addEventListener('beforeunload', detener);
+
+listarCamaras();
+</script>
+</body>
+</html>
