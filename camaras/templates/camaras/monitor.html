@@ -129,10 +129,19 @@
         <button id="btnDetener" class="sec" disabled>Detener</button>
         <button id="btnCaptura" class="sec" disabled>Tomar captura</button>
 
+        <label for="intervaloDeteccion">Detección IA</label>
+        <select id="intervaloDeteccion">
+            <option value="0">Desactivada</option>
+            <option value="200">Cada 200 ms</option>
+            <option value="500" selected>Cada 500 ms</option>
+            <option value="1000">Cada 1 s</option>
+        </select>
+
         <dl>
             <dt>Resolución real</dt><dd id="infoRes">—</dd>
             <dt>FPS</dt><dd id="infoFps">—</dd>
             <dt>Dispositivo</dt><dd id="infoDisp">—</dd>
+            <dt>Vehículos detectados</dt><dd id="infoVehiculos">—</dd>
         </dl>
 
         <div id="capturas"></div>
@@ -153,11 +162,92 @@ const estadoBadge = document.getElementById('estadoBadge');
 const infoRes = document.getElementById('infoRes');
 const infoFps = document.getElementById('infoFps');
 const infoDisp = document.getElementById('infoDisp');
+const infoVehiculos = document.getElementById('infoVehiculos');
+const intervaloDeteccion = document.getElementById('intervaloDeteccion');
 
 let stream = null;
 let contadorFrames = 0;
 let ultimoTick = performance.now();
 let rafId = null;
+
+// --- Detección de vehículos con YOLO (backend) ---
+const canvasCaptura = document.createElement('canvas'); // buffer oculto para extraer el frame como JPEG
+let detectando = false;       // evita mandar un frame nuevo mientras el anterior sigue en el servidor
+let timerDeteccion = null;
+let ultimasDetecciones = [];
+
+function colorPorClase(clase) {
+    const colores = {
+        auto: '#3b82f6', camion: '#f59e0b', autobus: '#a855f7',
+        moto: '#ef4444', bicicleta: '#22c55e'
+    };
+    return colores[clase] || '#e6e8ee';
+}
+
+async function enviarFrameADetectar() {
+    if (!stream || detectando) return;
+    detectando = true;
+    try {
+        canvasCaptura.width = video.videoWidth;
+        canvasCaptura.height = video.videoHeight;
+        canvasCaptura.getContext('2d').drawImage(video, 0, 0);
+
+        const blob = await new Promise(res => canvasCaptura.toBlob(res, 'image/jpeg', 0.8));
+        if (!blob) return;
+
+        const formData = new FormData();
+        formData.append('frame', blob, 'frame.jpg');
+
+        const resp = await fetch('/detectar/', { method: 'POST', body: formData });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const data = await resp.json();
+        if (data.error) throw new Error(data.error);
+
+        ultimasDetecciones = data.detecciones || [];
+        infoVehiculos.textContent = ultimasDetecciones.length;
+        dibujarDetecciones();
+    } catch (err) {
+        setMensaje('Error en detección IA: ' + err.message, true);
+    } finally {
+        detectando = false;
+    }
+}
+
+function dibujarDetecciones() {
+    const ctx = overlay.getContext('2d');
+    ctx.clearRect(0, 0, overlay.width, overlay.height);
+    // El overlay tiene el mismo tamaño en píxeles que el frame enviado (videoWidth/Height),
+    // así que las coordenadas que regresa el backend calzan directo, sin reescalar.
+    ultimasDetecciones.forEach(d => {
+        const color = colorPorClase(d.clase);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(d.x1, d.y1, d.x2 - d.x1, d.y2 - d.y1);
+
+        const etiqueta = `${d.clase} ${(d.confianza * 100).toFixed(0)}%`;
+        ctx.font = '14px system-ui, sans-serif';
+        const ancho = ctx.measureText(etiqueta).width + 8;
+        ctx.fillStyle = color;
+        ctx.fillRect(d.x1, Math.max(0, d.y1 - 18), ancho, 18);
+        ctx.fillStyle = '#0f1115';
+        ctx.fillText(etiqueta, d.x1 + 4, Math.max(12, d.y1 - 5));
+    });
+}
+
+function reiniciarTimerDeteccion() {
+    if (timerDeteccion) clearInterval(timerDeteccion);
+    timerDeteccion = null;
+    const ms = Number(intervaloDeteccion.value);
+    if (ms > 0 && stream) {
+        timerDeteccion = setInterval(enviarFrameADetectar, ms);
+    } else {
+        ultimasDetecciones = [];
+        infoVehiculos.textContent = '—';
+        overlay.getContext('2d').clearRect(0, 0, overlay.width, overlay.height);
+    }
+}
+
+intervaloDeteccion.addEventListener('change', reiniciarTimerDeteccion);
 
 function setMensaje(txt, esError = false) {
     mensaje.textContent = txt;
@@ -242,11 +332,15 @@ async function iniciar() {
     contadorFrames = 0;
     ultimoTick = performance.now();
     bucleFrames();
+    reiniciarTimerDeteccion();
 }
 
 function detener() {
     if (rafId) cancelAnimationFrame(rafId);
     rafId = null;
+    if (timerDeteccion) clearInterval(timerDeteccion);
+    timerDeteccion = null;
+    ultimasDetecciones = [];
     if (stream) {
         stream.getTracks().forEach(t => t.stop());
         stream = null;
@@ -255,12 +349,15 @@ function detener() {
     overlay.getContext('2d').clearRect(0, 0, overlay.width, overlay.height);
     setEstado('', 'Sin señal');
     infoRes.textContent = infoFps.textContent = infoDisp.textContent = '—';
+    infoVehiculos.textContent = '—';
     btnIniciar.disabled = false;
     btnDetener.disabled = true;
     btnCaptura.disabled = true;
 }
 
-// Bucle por frame: aquí se enganchará la IA más adelante
+// Bucle por frame: solo cuenta FPS. La detección IA corre aparte (ver
+// reiniciarTimerDeteccion) para no acoplar el envío al backend al
+// refresco de pantalla.
 function bucleFrames() {
     contadorFrames++;
     const ahora = performance.now();
@@ -269,7 +366,6 @@ function bucleFrames() {
         contadorFrames = 0;
         ultimoTick = ahora;
     }
-    // TODO (fase IA): tomar el frame, enviarlo al backend/worker y dibujar detecciones en #overlay
     rafId = requestAnimationFrame(bucleFrames);
 }
 
