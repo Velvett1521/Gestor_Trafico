@@ -33,3 +33,34 @@ class Camara(models.Model):
 
     def __str__(self):
         return f'{self.nombre} ({self.interseccion})'
+
+
+class ConteoVehiculo(models.Model):
+    """
+    Un registro por (cámara, franja de tiempo, clase de vehículo).
+    La franja se trunca a nivel minuto (ver `deteccion.registrar_conteo`)
+    para poder agregar por hora/día y comparar tráfico actual vs. histórico
+    sin escanear un registro por vehículo individual.
+    """
+    camara = models.ForeignKey(
+        Camara, on_delete=models.CASCADE, related_name='conteos'
+    )
+    marca_tiempo = models.DateTimeField(db_index=True)
+    clase = models.CharField(max_length=20)
+    cantidad = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        verbose_name = 'conteo de vehículos'
+        verbose_name_plural = 'conteos de vehículos'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['camara', 'marca_tiempo', 'clase'],
+                name='conteo_unico_por_minuto_y_clase',
+            )
+        ]
+        indexes = [
+            models.Index(fields=['camara', 'marca_tiempo']),
+        ]
+
+    def __str__(self):
+        return f'{self.camara} · {self.marca_tiempo:%Y-%m-%d %H:%M} · {self.clase}: {self.cantidad}'
