@@ -64,3 +64,33 @@ class ConteoVehiculo(models.Model):
 
     def __str__(self):
         return f'{self.camara} · {self.marca_tiempo:%Y-%m-%d %H:%M} · {self.clase}: {self.cantidad}'
+
+
+class DecisionSemaforo(models.Model):
+    """
+    Bitácora de cada decisión que tomó el motor de reglas de gestión de
+    tráfico para una intersección: qué cámara/carril recibió más verde,
+    por qué (regla aplicada) y con qué datos de tráfico se calculó.
+    Sirve para auditar la simulación, no solo para mostrar el estado
+    actual del semáforo virtual.
+    """
+    interseccion = models.ForeignKey(
+        Interseccion, on_delete=models.CASCADE, related_name='decisiones_semaforo'
+    )
+    marca_tiempo = models.DateTimeField(auto_now_add=True, db_index=True)
+    camara_favorecida = models.ForeignKey(
+        Camara, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='decisiones_favorecida',
+    )
+    segundos_verde_favorecida = models.PositiveIntegerField()
+    segundos_verde_resto = models.PositiveIntegerField()
+    regla_aplicada = models.CharField(max_length=60)
+    justificacion = models.TextField()
+
+    class Meta:
+        verbose_name = 'decisión de semáforo'
+        verbose_name_plural = 'decisiones de semáforo'
+        ordering = ['-marca_tiempo']
+
+    def __str__(self):
+        return f'{self.interseccion} · {self.marca_tiempo:%H:%M:%S} · {self.regla_aplicada}'

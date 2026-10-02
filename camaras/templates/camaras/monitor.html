@@ -113,6 +113,71 @@
         .fila-conteo { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
         .fila-conteo dl { flex: 1; margin: 0; }
         .fila-conteo button { width: auto; margin: 0; padding: 6px 10px; font-size: 12px; }
+
+        /* --- Notificaciones (toasts) --- */
+        #toasts {
+            position: fixed;
+            top: 16px;
+            right: 16px;
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-width: 340px;
+        }
+        .toast {
+            background: var(--panel);
+            border: 1px solid var(--error);
+            border-left-width: 4px;
+            border-radius: 6px;
+            padding: 10px 14px;
+            font-size: 13px;
+            box-shadow: 0 4px 16px rgba(0,0,0,.4);
+            animation: entrar-toast .2s ease-out;
+        }
+        .toast strong { display: block; margin-bottom: 2px; }
+        .toast .toast-sub { color: var(--suave); font-size: 12px; }
+        @keyframes entrar-toast {
+            from { transform: translateX(20px); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+
+        /* --- Semáforo virtual / gestión --- */
+        .gestion {
+            margin-top: 14px;
+            padding-top: 14px;
+            border-top: 1px solid var(--borde);
+        }
+        .gestion h2 { font-size: 14px; margin: 0 0 4px; }
+        .gestion-sub { font-size: 12px; color: var(--suave); margin: 0 0 12px; }
+        .accesos { display: flex; flex-direction: column; gap: 8px; }
+        .acceso {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 10px;
+            border: 1px solid var(--borde);
+            border-radius: 6px;
+        }
+        .acceso.favorecido { border-color: var(--acento); }
+        .semaforo-luces { display: flex; flex-direction: column; gap: 3px; }
+        .semaforo-luces span {
+            width: 10px; height: 10px; border-radius: 50%;
+            background: #333a48; display: block;
+        }
+        .semaforo-luces span.on-rojo { background: var(--error); }
+        .semaforo-luces span.on-amarillo { background: #eab308; }
+        .semaforo-luces span.on-verde { background: var(--ok); }
+        .acceso-info { flex: 1; }
+        .acceso-nombre { font-size: 13px; font-weight: 600; }
+        .acceso-datos { font-size: 11px; color: var(--suave); }
+        .acceso-tiempo { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+        .gestion-justificacion {
+            margin-top: 10px;
+            font-size: 12px;
+            color: var(--suave);
+            font-style: italic;
+        }
     </style>
 </head>
 <body>
@@ -120,6 +185,8 @@
     <h1>🚦 Gestor de Tráfico</h1>
     <a href="/admin/">Administración</a>
 </header>
+
+<div id="toasts" aria-live="polite"></div>
 
 <main>
     <section class="panel">
@@ -147,13 +214,20 @@
                 <span class="analisis-sub" id="anHoraPico">—</span>
             </div>
         </div>
+
+        <div id="panelGestion" class="gestion">
+            <h2>Gestión de semáforo (simulación)</h2>
+            <p class="gestion-sub">Compara el tráfico entre los accesos de esta intersección y sugiere tiempos de verde. No controla semáforos reales.</p>
+            <div id="accesosSemaforo" class="accesos"></div>
+            <p id="gestionJustificacion" class="gestion-justificacion">Selecciona una cámara registrada para ver la gestión de su intersección.</p>
+        </div>
     </section>
 
     <aside class="panel">
         <label for="camaraSistema">Cámara registrada (ubicación)</label>
         <select id="camaraSistema">
             {% for cam in camaras %}
-            <option value="{{ cam.id }}">{{ cam.nombre }} — {{ cam.interseccion.nombre }}</option>
+            <option value="{{ cam.id }}" data-interseccion-id="{{ cam.interseccion_id }}">{{ cam.nombre }} — {{ cam.interseccion.nombre }}</option>
             {% empty %}
             <option value="">Sin cámaras registradas (créalas en /admin/)</option>
             {% endfor %}
@@ -220,6 +294,9 @@ const anVariacion = document.getElementById('anVariacion');
 const anHistorico = document.getElementById('anHistorico');
 const anCongestion = document.getElementById('anCongestion');
 const anHoraPico = document.getElementById('anHoraPico');
+const toasts = document.getElementById('toasts');
+const accesosSemaforo = document.getElementById('accesosSemaforo');
+const gestionJustificacion = document.getElementById('gestionJustificacion');
 
 // Posición vertical de la línea virtual de conteo (fracción del alto,
 // 0 = arriba, 1 = abajo). Un vehículo se cuenta la primera vez que su
@@ -407,6 +484,109 @@ btnReiniciarConteo.addEventListener('click', async () => {
     }
 });
 
+// --- Notificaciones de congestión ---
+// Se consultan TODAS las cámaras (no solo la seleccionada) cada 20s,
+// para poder avisar de congestión en otra cámara aunque estés viendo
+// otra en pantalla. Se guarda qué alertas ya se mostraron para no
+// repetir el mismo toast en cada poll mientras la congestión sigue activa.
+const alertasYaMostradas = new Set();
+let timerAlertas = null;
+
+function mostrarToast(titulo, subtitulo) {
+    const el = document.createElement('div');
+    el.className = 'toast';
+    el.innerHTML = `<strong>${titulo}</strong><span class="toast-sub">${subtitulo}</span>`;
+    toasts.appendChild(el);
+    setTimeout(() => el.remove(), 10000);
+}
+
+async function revisarAlertas() {
+    try {
+        const resp = await fetch('/alertas/');
+        if (!resp.ok) return;
+        const data = await resp.json();
+        const idsActivos = new Set();
+
+        (data.alertas || []).forEach(a => {
+            idsActivos.add(a.camara_id);
+            if (!alertasYaMostradas.has(a.camara_id)) {
+                alertasYaMostradas.add(a.camara_id);
+                mostrarToast(
+                    `🚨 Congestión: ${a.camara_nombre}`,
+                    `${a.interseccion_nombre} — ${a.ritmo_por_minuto} veh/min` +
+                    (a.variacion_pct != null ? ` (${a.variacion_pct > 0 ? '+' : ''}${a.variacion_pct}% vs. habitual)` : '')
+                );
+            }
+        });
+
+        // Si una cámara dejó de estar en congestión, se libera su marca
+        // para poder volver a notificar si vuelve a congestionarse luego.
+        [...alertasYaMostradas].forEach(id => {
+            if (!idsActivos.has(id)) alertasYaMostradas.delete(id);
+        });
+    } catch (err) {
+        console.warn('No se pudieron revisar alertas:', err);
+    }
+}
+
+// Las alertas corren siempre, independientemente de si hay una cámara
+// de video activa en pantalla, porque son un monitoreo global.
+revisarAlertas();
+timerAlertas = setInterval(revisarAlertas, 20000);
+
+// --- Gestión de semáforo (simulación por reglas) ---
+let timerGestion = null;
+
+function claseFase(fase, colorObjetivo) {
+    return fase === colorObjetivo ? `on-${colorObjetivo}` : '';
+}
+
+async function actualizarGestion() {
+    const opcion = camaraSistema.selectedOptions[0];
+    const interseccionId = opcion ? opcion.dataset.interseccionId : null;
+    if (!interseccionId) return;
+
+    try {
+        const resp = await fetch(`/intersecciones/${interseccionId}/gestion/`);
+        if (!resp.ok) return;
+        const g = await resp.json();
+
+        gestionJustificacion.textContent = g.justificacion;
+
+        if (!g.accesos || g.accesos.length === 0) {
+            accesosSemaforo.innerHTML = '<p class="gestion-sub">Sin cámaras activas en esta intersección.</p>';
+            return;
+        }
+
+        accesosSemaforo.innerHTML = g.accesos.map(acc => `
+            <div class="acceso ${acc.fase === 'verde' ? 'favorecido' : ''}">
+                <div class="semaforo-luces">
+                    <span class="${claseFase(acc.fase, 'rojo')}"></span>
+                    <span class="${claseFase(acc.fase, 'amarillo')}"></span>
+                    <span class="${claseFase(acc.fase, 'verde')}"></span>
+                </div>
+                <div class="acceso-info">
+                    <div class="acceso-nombre">${acc.nombre}${acc.congestion ? ' 🚨' : ''}</div>
+                    <div class="acceso-datos">${acc.ritmo_por_minuto} veh/min</div>
+                </div>
+                <div class="acceso-tiempo">${acc.segundos_verde}s</div>
+            </div>
+        `).join('');
+    } catch (err) {
+        console.warn('No se pudo actualizar la gestión de semáforo:', err);
+    }
+}
+
+function reiniciarTimerGestion() {
+    if (timerGestion) clearInterval(timerGestion);
+    timerGestion = setInterval(actualizarGestion, 15000);
+    actualizarGestion();
+}
+
+// La gestión también se recalcula si el usuario cambia de cámara
+// (y por lo tanto potencialmente de intersección) sin reiniciar el video.
+camaraSistema.addEventListener('change', actualizarGestion);
+
 function setMensaje(txt, esError = false) {
     mensaje.textContent = txt;
     mensaje.className = esError ? 'error' : '';
@@ -492,6 +672,7 @@ async function iniciar() {
     bucleFrames();
     reiniciarTimerDeteccion();
     reiniciarTimerAnalisis();
+    reiniciarTimerGestion();
 }
 
 function detener() {
@@ -501,6 +682,10 @@ function detener() {
     timerDeteccion = null;
     if (timerAnalisis) clearInterval(timerAnalisis);
     timerAnalisis = null;
+    if (timerGestion) clearInterval(timerGestion);
+    timerGestion = null;
+    // timerAlertas NO se detiene aquí a propósito: las notificaciones de
+    // congestión vigilan TODAS las cámaras, no solo la que se está viendo.
     ultimasDetecciones = [];
     totalCruces = 0;
     if (stream) {

@@ -5,7 +5,8 @@ from django.http import JsonResponse
 
 from .deteccion import procesar_frame, volcar_buffer_a_bd, reiniciar_conteo
 from .analisis import analizar_camara
-from .models import Camara
+from .gestion import evaluar_interseccion, decision_a_dict
+from .models import Camara, Interseccion
 
 
 def monitor(request):
@@ -64,3 +65,38 @@ def analisis(request, camara_id):
     """Devuelve el panorama de tránsito (histórico, congestión, tendencia) de una cámara."""
     get_object_or_404(Camara, pk=camara_id)
     return JsonResponse(analizar_camara(camara_id))
+
+
+@require_GET
+def gestion_interseccion(request, interseccion_id):
+    """
+    Devuelve la decisión del motor de reglas (semáforo virtual) para
+    todas las cámaras activas de una intersección.
+    """
+    get_object_or_404(Interseccion, pk=interseccion_id)
+    decision = evaluar_interseccion(interseccion_id)
+    return JsonResponse(decision_a_dict(decision))
+
+
+@require_GET
+def alertas(request):
+    """
+    Revisa TODAS las cámaras activas y devuelve las que están en
+    congestión ahora mismo, para el sistema de notificaciones en la UI.
+    Se hace en un único endpoint (en vez de que el cliente pregunte
+    cámara por cámara) para no multiplicar requests cuando hay varias
+    cámaras registradas.
+    """
+    resultado = []
+    for cam in Camara.objects.select_related('interseccion').filter(activa=True):
+        a = analizar_camara(cam.id)
+        if a['congestion']:
+            resultado.append({
+                "camara_id": cam.id,
+                "camara_nombre": cam.nombre,
+                "interseccion_id": cam.interseccion_id,
+                "interseccion_nombre": cam.interseccion.nombre,
+                "ritmo_por_minuto": a['ritmo_por_minuto'],
+                "variacion_pct": a['variacion_pct'],
+            })
+    return JsonResponse({"alertas": resultado})

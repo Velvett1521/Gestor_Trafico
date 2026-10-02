@@ -14,6 +14,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'camaras',
+    'django_extensions',
 ]
 
 MIDDLEWARE = [
