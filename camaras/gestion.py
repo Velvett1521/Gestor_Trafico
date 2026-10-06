@@ -53,14 +53,20 @@ class DecisionGestion:
 
 
 def _ritmo_reciente(camara_id: int, minutos: int = 5) -> float:
-    """Vehículos/minuto de una cámara en los últimos `minutos`."""
+    """
+    Vehículos/minuto de una cámara en los últimos `minutos`, dividido
+    entre los minutos que SÍ tienen registro (no entre la ventana fija):
+    dos cámaras de la misma intersección pueden llevar tiempos de
+    arranque distintos, y dividir siempre entre `minutos` castigaba a la
+    que llevaba menos tiempo corriendo con un ritmo artificialmente bajo.
+    """
     desde = timezone.now() - timedelta(minutes=minutos)
-    total = (
-        ConteoVehiculo.objects
-        .filter(camara_id=camara_id, marca_tiempo__gte=desde)
-        .aggregate(suma=Sum('cantidad'))['suma'] or 0
-    )
-    return round(total / minutos, 2)
+    ventana = ConteoVehiculo.objects.filter(camara_id=camara_id, marca_tiempo__gte=desde)
+    total = ventana.aggregate(suma=Sum('cantidad'))['suma'] or 0
+    minutos_con_dato = ventana.values('marca_tiempo').distinct().count()
+    if minutos_con_dato == 0:
+        return 0.0
+    return round(total / minutos_con_dato, 2)
 
 
 def _repartir_verde(accesos: list[EstadoAcceso]) -> tuple[str, str]:

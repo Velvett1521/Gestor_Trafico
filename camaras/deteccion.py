@@ -17,8 +17,8 @@ import io
 import threading
 import time
 from collections import defaultdict
-from datetime import datetime
 
+from django.utils import timezone
 from PIL import Image
 
 _lock = threading.Lock()
@@ -197,7 +197,12 @@ def volcar_buffer_a_bd():
     if not pendientes:
         return 0
 
-    marca_minuto = datetime.now().replace(second=0, microsecond=0)
+    # IMPORTANTE: timezone.now() (aware), no datetime.now() (naive). Con
+    # USE_TZ=True, Django guarda un datetime naive asumiendo que ya está
+    # en UTC; como TIME_ZONE es America/Mexico_City (UTC-6), un naive
+    # quedaba desfasado 6h al leerlo de vuelta, rompiendo toda
+    # comparación de "mismo horario" contra el histórico.
+    marca_minuto = timezone.now().replace(second=0, microsecond=0)
     guardados = 0
     for camara_id, clases in pendientes.items():
         if not Camara.objects.filter(pk=camara_id).exists():

@@ -20,13 +20,25 @@ UMBRAL_CONGESTION_POR_MINUTO = 8
 # tráfico actual contra el promedio de esa misma hora y día de la semana.
 SEMANAS_HISTORICO = 8
 
+# Mínimo de minutos con datos reales (no ventana fija) que debe haber,
+# tanto en el tramo actual como en el histórico, para calcular una
+# variación porcentual confiable. Con menos minutos que esto, un solo
+# minuto flojo o fuerte distorsiona el % de forma engañosa (por eso se
+# veían caídas falsas como -96%), así que se reporta "sin datos
+# suficientes" en vez de un porcentaje poco representativo.
+MINUTOS_MINIMOS_PARA_COMPARAR = 3
 
-def _promedio_historico(camara_id: int, momento) -> float:
+
+def _promedio_historico(camara_id: int, momento) -> tuple[float, int]:
     """
     Promedio de vehículos/minuto registrados históricamente para esta
     cámara, en la MISMA hora del día y el MISMO día de la semana que
     `momento` (para comparar un lunes 8am contra otros lunes 8am, no
     contra el tráfico general).
+
+    Devuelve (promedio, minutos_distintos) — el conteo de minutos se
+    expone para que quien llama pueda decidir si hay suficiente base
+    para confiar en el promedio, en vez de solo recibir un número.
     """
     momento_local = timezone.localtime(momento)
     desde = momento - timedelta(weeks=SEMANAS_HISTORICO)
@@ -45,10 +57,10 @@ def _promedio_historico(camara_id: int, momento) -> float:
         and timezone.localtime(r.marca_tiempo).weekday() == momento_local.weekday()
     ]
     if not registros:
-        return 0.0
+        return 0.0, 0
     minutos_distintos = len({r.marca_tiempo for r in registros})
     total = sum(r.cantidad for r in registros)
-    return total / minutos_distintos
+    return total / minutos_distintos, minutos_distintos
 
 
 def analizar_camara(camara_id: int) -> dict:
@@ -75,17 +87,35 @@ def analizar_camara(camara_id: int) -> dict:
 
     ventana = ConteoVehiculo.objects.filter(camara_id=camara_id, marca_tiempo__gte=desde_5min)
     vehiculos_5min = ventana.aggregate(suma=Sum('cantidad'))['suma'] or 0
-    ritmo_por_minuto = round(vehiculos_5min / 5, 2)
+
+    # Antes se dividía siempre entre 5 (la ventana fija), aunque solo 1
+    # o 2 de esos minutos tuvieran registro real — eso inflaba o
+    # desinflaba el ritmo de forma artificial (de ahí caídas falsas como
+    # -96%). Ahora se divide entre los minutos que SÍ tienen dato.
+    minutos_con_dato_actual = ventana.values('marca_tiempo').distinct().count()
+    if minutos_con_dato_actual > 0:
+        ritmo_por_minuto = round(vehiculos_5min / minutos_con_dato_actual, 2)
+    else:
+        ritmo_por_minuto = 0.0
 
     por_clase = {}
     for fila in ventana.values('clase').annotate(total=Sum('cantidad')):
         por_clase[fila['clase']] = fila['total']
 
-    promedio_historico = round(_promedio_historico(camara_id, ahora), 2)
-    if promedio_historico > 0:
+    promedio_historico, minutos_historico = _promedio_historico(camara_id, ahora)
+    promedio_historico = round(promedio_historico, 2)
+
+    # La variación solo se calcula si HAY suficiente base en ambos lados
+    # (actual e histórico); con pocos minutos de por medio, un solo dato
+    # suelto puede disparar un porcentaje engañoso en cualquier dirección.
+    datos_suficientes = (
+        minutos_con_dato_actual >= MINUTOS_MINIMOS_PARA_COMPARAR
+        and minutos_historico >= MINUTOS_MINIMOS_PARA_COMPARAR
+    )
+    if datos_suficientes and promedio_historico > 0:
         variacion_pct = round((ritmo_por_minuto - promedio_historico) / promedio_historico * 100, 1)
     else:
-        variacion_pct = None  # sin histórico suficiente todavía
+        variacion_pct = None  # sin base suficiente todavía, no se reporta un % que puede ser ruido
 
     ahora_local = timezone.localtime(ahora)
     hoy = ahora_local.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -111,8 +141,10 @@ def analizar_camara(camara_id: int) -> dict:
     return {
         "vehiculos_ultimos_5min": vehiculos_5min,
         "ritmo_por_minuto": ritmo_por_minuto,
-        "promedio_historico_mismo_horario": promedio_historico or None,
+        "promedio_historico_mismo_horario": promedio_historico if datos_suficientes else None,
         "variacion_pct": variacion_pct,
+        "minutos_con_dato_actual": minutos_con_dato_actual,
+        "minutos_con_dato_historico": minutos_historico,
         "congestion": ritmo_por_minuto >= UMBRAL_CONGESTION_POR_MINUTO,
         "hora_pico_hoy": hora_pico_hoy,
         "tendencia_por_hora": tendencia_por_hora,
