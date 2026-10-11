@@ -22,7 +22,13 @@ from django.utils import timezone
 from PIL import Image
 
 _lock = threading.Lock()
-_modelo = None
+# Una instancia de YOLO POR CÁMARA: ultralytics guarda el estado del tracker
+# (ByteTrack) dentro del propio modelo cuando se usa persist=True, así que
+# compartir una sola instancia mezclaría los IDs entre cámaras. Cada una
+# también tiene su lock, porque el servidor atiende requests en paralelo y
+# dos frames de la MISMA cámara no deben entrar al tracker a la vez.
+_modelos = {}          # {camara_id: YOLO}
+_locks_camara = {}     # {camara_id: threading.Lock}
 
 # Nombre del checkpoint de Ultralytics. Se descarga solo la primera vez
 # que se instancia YOLO(...) y se guarda en caché local.
@@ -32,7 +38,7 @@ _modelo = None
 NOMBRE_MODELO = "yolov8s.pt"
 
 # Tamaño (lado) al que se reescala la imagen antes de pasarla al modelo.
-TAMANO_INFERENCIA = 480
+TAMANO_INFERENCIA = 960
 
 # IDs de clases COCO que nos interesan (vehículos).
 CLASES_VEHICULOS = {1: "bicicleta", 2: "auto", 3: "moto", 5: "autobus", 7: "camion"}
@@ -61,15 +67,16 @@ def _detectar_dispositivo() -> str:
     return "cpu"
 
 
-def _obtener_modelo():
-    global _modelo
-    if _modelo is None:
-        with _lock:
-            if _modelo is None:  # doble check dentro del lock
-                from ultralytics import YOLO
-                _modelo = YOLO(NOMBRE_MODELO)
-                _modelo.to(_detectar_dispositivo())
-    return _modelo
+def _obtener_modelo(camara_id: int):
+    """Devuelve (modelo, lock) exclusivos de la cámara indicada."""
+    with _lock:
+        if camara_id not in _modelos:
+            from ultralytics import YOLO
+            modelo = YOLO(NOMBRE_MODELO)
+            modelo.to(_detectar_dispositivo())
+            _modelos[camara_id] = modelo
+            _locks_camara[camara_id] = threading.Lock()
+        return _modelos[camara_id], _locks_camara[camara_id]
 
 
 def _lado_de_linea(cy: float, alto_imagen: int, linea_y_frac: float) -> str:
@@ -92,28 +99,26 @@ def procesar_frame(camara_id: int, bytes_imagen: bytes, linea_y_frac: float = 0.
         }
     """
     t0 = time.perf_counter()
-    modelo = _obtener_modelo()
+    modelo, lock_camara = _obtener_modelo(camara_id)
     imagen = Image.open(io.BytesIO(bytes_imagen)).convert("RGB")
     alto_imagen = imagen.height
     t1 = time.perf_counter()
 
     # persist=True mantiene el estado del tracker (ByteTrack) entre
-    # llamadas, indexado internamente por la propia instancia de modelo.
-    # Como el modelo es un singleton compartido por todas las cámaras,
-    # esto asume una sola cámara activa a la vez por proceso; si vas a
-    # correr varias cámaras en paralelo en el mismo proceso, cada una
-    # necesitaría su propia instancia de YOLO (más memoria) para no
-    # mezclar IDs entre cámaras.
-    resultados = modelo.track(
-        imagen,
-        verbose=False,
-        conf=UMBRAL_CONFIANZA,
-        classes=list(CLASES_VEHICULOS.keys()),
-        imgsz=TAMANO_INFERENCIA,
-        quantize=(16 if modelo.device.type == "cuda" else None),  # antes: half=... (deprecado en ultralytics >= 8.4)
-        persist=True,
-        tracker="bytetrack.yaml",
-    )
+    # llamadas. Como cada cámara tiene su propia instancia de modelo
+    # (ver _obtener_modelo), los IDs de una cámara nunca se mezclan con
+    # los de otra.
+    with lock_camara:
+        resultados = modelo.track(
+            imagen,
+            verbose=False,
+            conf=UMBRAL_CONFIANZA,
+            classes=list(CLASES_VEHICULOS.keys()),
+            imgsz=TAMANO_INFERENCIA,
+            quantize=(16 if modelo.device.type == "cuda" else None),  # antes: half=... (deprecado en ultralytics >= 8.4)
+            persist=True,
+            tracker="bytetrack.yaml",
+        )
     t2 = time.perf_counter()
 
     detecciones = []
@@ -222,5 +227,59 @@ def reiniciar_conteo(camara_id: int):
     """Reinicia el conteo de sesión de una cámara (botón 'reiniciar conteo' en la UI)."""
     _lado_previo_por_id.pop(camara_id, None)
     _ids_contados.pop(camara_id, None)
+    # Reinicia también el tracker de esa cámara (IDs vuelven a empezar).
+    modelo = _modelos.get(camara_id)
+    predictor = getattr(modelo, 'predictor', None) if modelo else None
+    for tracker in getattr(predictor, 'trackers', None) or []:
+        try:
+            tracker.reset()
+        except Exception:  # noqa: BLE001 - no es crítico si esta versión no lo soporta
+            pass
     with _buffer_lock:
         _buffer_conteos.pop(camara_id, None)
+
+
+
+
+# ---------------------------------------------------------------------
+# Volcador periódico a BD.
+#
+# ANTES: el consumer llamaba a volcar_buffer_a_bd() en CADA frame.
+# Con 4 cámaras a 10 fps, eso son 40 llamadas por segundo al thread pool
+# de asgiref, cada una tomando el GIL para hacer INSERT/UPDATE. El hilo
+# que decodifica el JPEG del siguiente frame se quedaba esperando, y por
+# eso aparecían picos de decode=400ms cuando lo normal es 5-15ms.
+#
+# AHORA: un solo hilo daemon escribe cada N segundos. No compite con
+# los frames, no satura el thread pool, y agrupa más filas por escritura
+# (menos round-trips a Postgres).
+# ---------------------------------------------------------------------
+import threading as _threading
+import time as _time
+
+_INTERVALO_VOLCADO_SEG = 5
+_hilo_volcador_iniciado = False
+_lock_arranque_volcador = _threading.Lock()
+
+
+def _bucle_volcador():
+    while True:
+        _time.sleep(_INTERVALO_VOLCADO_SEG)
+        try:
+            n = volcar_buffer_a_bd()
+            if n:
+                print(f"[volcador] {n} filas guardadas")
+        except Exception as exc:
+            print(f"[volcador] error: {exc}")
+
+
+def arrancar_volcador():
+    """Arranca el hilo daemon una sola vez (idempotente)."""
+    global _hilo_volcador_iniciado
+    with _lock_arranque_volcador:
+        if _hilo_volcador_iniciado:
+            return
+        hilo = _threading.Thread(target=_bucle_volcador, daemon=True, name="volcador-conteos")
+        hilo.start()
+        _hilo_volcador_iniciado = True
+        print("[volcador] hilo de volcado periódico iniciado.")

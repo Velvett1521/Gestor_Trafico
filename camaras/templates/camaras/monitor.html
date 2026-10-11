@@ -3,735 +3,1197 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gestor de Tráfico · Monitor</title>
+    <title>Gestor de Tráfico · Centro de monitoreo</title>
     <style>
         :root {
-            --bg: #0f1115;
-            --panel: #181b22;
-            --borde: #272b35;
-            --texto: #e6e8ee;
-            --suave: #8b92a3;
-            --acento: #3b82f6;
-            --ok: #22c55e;
-            --error: #ef4444;
+            --bg: #0a0d13;
+            --surface: #11161f;
+            --surface-2: #161c28;
+            --borde: #222a3a;
+            --borde-fuerte: #2e384d;
+            --texto: #e8ebf2;
+            --suave: #8a93a7;
+            --tenue: #5d6579;
+            --acento: #4f8cff;
+            --acento-hover: #6a9fff;
+            --ok: #2fbf71;
+            --aviso: #f5a524;
+            --error: #ef4a4a;
+            --radio: 10px;
+            --sombra: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.25);
         }
         * { box-sizing: border-box; }
+        html, body { height: 100%; }
         body {
             margin: 0;
-            font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+            font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+            font-size: 14px;
+            line-height: 1.4;
             background: var(--bg);
             color: var(--texto);
+            -webkit-font-smoothing: antialiased;
         }
-        header {
-            padding: 16px 24px;
-            border-bottom: 1px solid var(--borde);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        header h1 { font-size: 18px; margin: 0; }
-        header a { color: var(--suave); font-size: 14px; text-decoration: none; }
-        main {
-            max-width: 1100px;
-            margin: 24px auto;
-            padding: 0 24px;
-            display: grid;
-            grid-template-columns: 1fr 280px;
-            gap: 20px;
-        }
-        @media (max-width: 800px) { main { grid-template-columns: 1fr; } }
-        .panel {
-            background: var(--panel);
-            border: 1px solid var(--borde);
-            border-radius: 10px;
-            padding: 16px;
-        }
-        .visor { position: relative; }
-        video {
-            width: 100%;
-            aspect-ratio: 16 / 9;
-            background: #000;
-            border-radius: 8px;
-            display: block;
-            object-fit: cover;
-        }
-        /* Aquí se dibujarán después las detecciones de la IA */
-        canvas#overlay {
-            position: absolute;
-            inset: 0;
-            width: 100%;
-            height: 100%;
-            pointer-events: none;
-        }
-        .badge {
-            position: absolute;
-            top: 10px; left: 10px;
-            background: rgba(0,0,0,.6);
-            padding: 4px 10px;
-            border-radius: 20px;
-            font-size: 12px;
-            display: flex; align-items: center; gap: 6px;
-        }
-        .punto { width: 8px; height: 8px; border-radius: 50%; background: var(--suave); }
-        .punto.activo { background: var(--ok); }
-        .punto.error { background: var(--error); }
-        label { display: block; font-size: 12px; color: var(--suave); margin-bottom: 6px; }
-        select, button {
-            width: 100%;
-            padding: 10px 12px;
-            border-radius: 8px;
-            border: 1px solid var(--borde);
-            background: #0f1115;
-            color: var(--texto);
-            font-size: 14px;
-            margin-bottom: 12px;
-        }
-        button { cursor: pointer; background: var(--acento); border: none; font-weight: 600; }
-        button.sec { background: transparent; border: 1px solid var(--borde); font-weight: 400; }
-        button:disabled { opacity: .4; cursor: not-allowed; }
-        dl { margin: 0; font-size: 13px; }
-        dt { color: var(--suave); margin-top: 10px; }
-        dd { margin: 2px 0 0; font-variant-numeric: tabular-nums; }
-        #mensaje { font-size: 13px; color: var(--suave); min-height: 18px; }
-        #mensaje.error { color: var(--error); }
-        #capturas { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 12px; }
-        #capturas img { width: 100%; border-radius: 4px; }
-        .analisis {
-            margin-top: 14px;
-            padding-top: 14px;
-            border-top: 1px solid var(--borde);
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 12px;
-        }
-        .analisis-item { display: flex; flex-direction: column; gap: 2px; }
-        .analisis-label { font-size: 11px; color: var(--suave); }
-        .analisis-valor { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
-        .analisis-valor.alerta { color: var(--error); }
-        .analisis-valor.ok { color: var(--ok); }
-        .analisis-sub { font-size: 11px; color: var(--suave); }
-        .fila-conteo { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
-        .fila-conteo dl { flex: 1; margin: 0; }
-        .fila-conteo button { width: auto; margin: 0; padding: 6px 10px; font-size: 12px; }
+        .num { font-variant-numeric: tabular-nums; }
+        svg.ico { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
 
-        /* --- Notificaciones (toasts) --- */
-        #toasts {
-            position: fixed;
-            top: 16px;
-            right: 16px;
-            z-index: 100;
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            max-width: 340px;
+        .topbar {
+            position: sticky; top: 0; z-index: 50;
+            display: flex; align-items: center; justify-content: space-between; gap: 16px;
+            padding: 0 24px; height: 56px;
+            background: rgba(10,13,19,.88);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--borde);
         }
+        .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+        .brand-logo {
+            width: 32px; height: 32px; border-radius: 8px; flex: none;
+            display: grid; place-items: center;
+            background: linear-gradient(135deg, #3b6fe0, #4f8cff);
+            color: #fff;
+        }
+        .brand-logo svg { width: 18px; height: 18px; }
+        .brand h1 { font-size: 15px; font-weight: 650; margin: 0; letter-spacing: .1px; white-space: nowrap; }
+        .brand p { margin: 0; font-size: 11.5px; color: var(--suave); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .topbar-right { display: flex; align-items: center; gap: 18px; }
+        .estado-sistema { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--suave); }
+        .reloj { font-size: 13px; color: var(--suave); }
+        .link-admin {
+            display: inline-flex; align-items: center; gap: 6px;
+            color: var(--suave); text-decoration: none; font-size: 13px;
+            padding: 6px 10px; border: 1px solid var(--borde); border-radius: 8px;
+        }
+        .link-admin:hover { color: var(--texto); border-color: var(--borde-fuerte); }
+
+        .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--tenue); flex: none; }
+        .dot.ok { background: var(--ok); box-shadow: 0 0 0 3px rgba(47,191,113,.18); }
+        .dot.error { background: var(--error); box-shadow: 0 0 0 3px rgba(239,74,74,.18); }
+        .dot.aviso { background: var(--aviso); box-shadow: 0 0 0 3px rgba(245,165,36,.18); }
+
+        .contenedor { max-width: 1680px; margin: 0 auto; padding: 20px 24px 40px; }
+
+        .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 18px; }
+        .kpi {
+            background: var(--surface); border: 1px solid var(--borde); border-radius: var(--radio);
+            padding: 14px 16px;
+        }
+        .kpi-label { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--suave); text-transform: uppercase; letter-spacing: .6px; font-weight: 600; }
+        .kpi-valor { font-size: 28px; font-weight: 700; margin-top: 6px; line-height: 1.1; }
+        .kpi-valor small { font-size: 14px; font-weight: 500; color: var(--suave); margin-left: 4px; }
+        .kpi-valor.ok { color: var(--ok); }
+        .kpi-valor.error { color: var(--error); }
+        .kpi-sub { font-size: 12px; color: var(--suave); margin-top: 4px; }
+
+        .toolbar {
+            display: flex; flex-wrap: wrap; align-items: center; gap: 12px;
+            background: var(--surface); border: 1px solid var(--borde); border-radius: var(--radio);
+            padding: 12px 14px; margin-bottom: 18px;
+        }
+        .toolbar .grupo { display: flex; align-items: center; gap: 8px; }
+        .toolbar .sep { width: 1px; height: 26px; background: var(--borde); margin: 0 4px; }
+        .toolbar .espacio { flex: 1; }
+        .campo { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--suave); }
+
+        select, .btn {
+            font: inherit; font-size: 13px;
+            color: var(--texto);
+            background: var(--surface-2);
+            border: 1px solid var(--borde-fuerte);
+            border-radius: 8px;
+            padding: 7px 10px;
+            outline: none;
+        }
+        select { cursor: pointer; max-width: 100%; }
+        select:focus-visible, .btn:focus-visible, .icon-btn:focus-visible { border-color: var(--acento); box-shadow: 0 0 0 3px rgba(79,140,255,.25); }
+        .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; cursor: pointer; font-weight: 600; white-space: nowrap; }
+        .btn:hover:not(:disabled) { border-color: var(--suave); }
+        .btn.primario { background: var(--acento); border-color: var(--acento); color: #fff; }
+        .btn.primario:hover:not(:disabled) { background: var(--acento-hover); border-color: var(--acento-hover); }
+        .btn.peligro { color: #ff8a8a; }
+        .btn:disabled, .icon-btn:disabled { opacity: .4; cursor: not-allowed; }
+
+        .icon-btn {
+            display: inline-grid; place-items: center;
+            width: 32px; height: 32px; padding: 0;
+            color: var(--suave);
+            background: transparent;
+            border: 1px solid var(--borde-fuerte);
+            border-radius: 8px; cursor: pointer;
+        }
+        .icon-btn:hover:not(:disabled) { color: var(--texto); border-color: var(--suave); }
+
+        .layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 18px; align-items: start; }
+        .col-lateral { display: flex; flex-direction: column; gap: 18px; position: sticky; top: 74px; }
+
+        .grid-camaras { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+        .grid-camaras.enfoque { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        .grid-camaras.enfoque .tile.enfocada { grid-column: 1 / -1; order: -1; }
+        .grid-camaras.enfoque .tile.enfocada .visor { width: min(100%, calc(72vh * var(--ar, 1.7778))); margin: 0 auto; }
+        .grid-camaras.enfoque .tile:not(.enfocada) .tile-controles,
+        .grid-camaras.enfoque .tile:not(.enfocada) .tile-stats { display: none; }
+
+        .tile {
+            background: var(--surface); border: 1px solid var(--borde); border-radius: var(--radio);
+            overflow: hidden; display: flex; flex-direction: column;
+            transition: border-color .15s;
+        }
+        .tile.congestion { border-color: rgba(239,74,74,.65); }
+        .tile.vacia { border-style: dashed; background: transparent; }
+
+        .tile-cabecera { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; }
+        .tile-titulo { display: flex; align-items: center; gap: 10px; min-width: 0; }
+        .tile-titulo h3 { margin: 0; font-size: 14px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .tile-titulo p { margin: 0; font-size: 11.5px; color: var(--suave); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .tile-cabecera-der { display: flex; align-items: center; gap: 8px; flex: none; }
+
+        .chip {
+            display: inline-flex; align-items: center; gap: 6px;
+            font-size: 11.5px; font-weight: 600;
+            padding: 3px 9px; border-radius: 999px;
+            background: var(--surface-2); color: var(--suave);
+            border: 1px solid var(--borde);
+            white-space: nowrap;
+        }
+        .chip.verde { color: var(--ok); border-color: rgba(47,191,113,.4); background: rgba(47,191,113,.08); }
+        .chip.rojo { color: #ff8a8a; border-color: rgba(239,74,74,.4); background: rgba(239,74,74,.08); }
+        .chip.amarillo { color: var(--aviso); border-color: rgba(245,165,36,.4); background: rgba(245,165,36,.08); }
+
+        .visor { position: relative; background: #000; aspect-ratio: 16 / 9; width: 100%; }
+        .visor video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; display: block; background: #000; }
+        .visor canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+        .sin-senal {
+            position: absolute; inset: 0;
+            display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+            color: var(--tenue); font-size: 13px; text-align: center; padding: 16px;
+            background:
+                repeating-linear-gradient(45deg, rgba(255,255,255,.015) 0 10px, transparent 10px 20px),
+                #07090d;
+        }
+        .sin-senal svg { width: 34px; height: 34px; stroke-width: 1.4; }
+        .sin-senal .msg-error { color: #ff8a8a; max-width: 90%; }
+        .visor.en-vivo .sin-senal { display: none; }
+
+        .insignias { position: absolute; top: 10px; left: 10px; right: 10px; display: flex; justify-content: space-between; pointer-events: none; }
+        .insignia {
+            display: inline-flex; align-items: center; gap: 6px;
+            font-size: 11px; font-weight: 700; letter-spacing: .6px;
+            padding: 4px 9px; border-radius: 6px;
+            background: rgba(8,10,15,.72); backdrop-filter: blur(4px);
+            color: var(--texto);
+        }
+        .insignia.vivo { color: #fff; }
+        .insignia.vivo .dot { background: var(--error); box-shadow: none; animation: parpadeo 1.4s infinite; }
+        .insignia.alerta { background: rgba(239,74,74,.9); color: #fff; }
+        .insignia.tecnica { font-weight: 500; letter-spacing: 0; color: #cfd5e3; }
+        .insignia.ws-off { background: rgba(245,165,36,.85); color: #0a0d13; }
+        .visor:not(.en-vivo) .insignia.vivo,
+        .visor:not(.en-vivo) .insignia.tecnica { display: none; }
+        @keyframes parpadeo { 50% { opacity: .25; } }
+
+        .tile-stats { display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid var(--borde); }
+        .stat { padding: 10px 12px; border-right: 1px solid var(--borde); min-width: 0; }
+        .stat:last-child { border-right: 0; }
+        .stat-label { font-size: 11px; color: var(--suave); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .stat-valor { font-size: 18px; font-weight: 700; margin-top: 2px; }
+        .stat-valor.ok { color: var(--ok); }
+        .stat-valor.error { color: var(--error); }
+        .stat-valor.aviso { color: var(--aviso); }
+
+        .tile-controles { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--borde); }
+        .tile-controles select { flex: 1; min-width: 0; }
+        .tile-msg { margin: 0; padding: 0 12px 10px; font-size: 12px; color: #ff8a8a; min-height: 0; }
+        .tile-msg:empty { display: none; }
+
+        .tile-vacia-cuerpo { flex: 1; min-height: 220px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--tenue); text-align: center; padding: 24px; }
+        .tile-vacia-cuerpo svg { width: 30px; height: 30px; stroke-width: 1.4; }
+        .tile-vacia-cuerpo a { color: var(--acento); text-decoration: none; }
+
+        .panel { background: var(--surface); border: 1px solid var(--borde); border-radius: var(--radio); }
+        .panel-cabecera { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--borde); }
+        .panel-cabecera h2 { margin: 0; font-size: 13px; font-weight: 650; }
+        .panel-cabecera span { font-size: 11.5px; color: var(--suave); }
+        .panel-cuerpo { padding: 12px 14px; }
+        .nota { font-size: 12px; color: var(--suave); margin: 0 0 12px; }
+
+        .accesos { display: flex; flex-direction: column; gap: 8px; }
+        .acceso { display: flex; align-items: center; gap: 12px; padding: 9px 11px; border: 1px solid var(--borde); border-radius: 8px; background: var(--surface-2); }
+        .acceso.favorecido { border-color: rgba(47,191,113,.55); }
+        .luces { display: flex; flex-direction: column; gap: 3px; padding: 4px; background: #0a0d13; border-radius: 6px; }
+        .luces span { width: 9px; height: 9px; border-radius: 50%; background: #2a3243; display: block; }
+        .luces span.on-rojo { background: var(--error); box-shadow: 0 0 6px var(--error); }
+        .luces span.on-amarillo { background: var(--aviso); box-shadow: 0 0 6px var(--aviso); }
+        .luces span.on-verde { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+        .acceso-info { flex: 1; min-width: 0; }
+        .acceso-nombre { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .acceso-datos { font-size: 11.5px; color: var(--suave); }
+        .acceso-tiempo { font-size: 20px; font-weight: 700; }
+        .acceso-tiempo small { font-size: 11px; color: var(--suave); font-weight: 500; margin-left: 1px; }
+        .justificacion { margin: 12px 0 0; font-size: 12px; color: var(--suave); line-height: 1.5; border-left: 2px solid var(--borde-fuerte); padding-left: 10px; }
+        .interseccion-bloque + .interseccion-bloque { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--borde); }
+        .interseccion-bloque h3 { margin: 0 0 10px; font-size: 12px; color: var(--suave); font-weight: 600; text-transform: uppercase; letter-spacing: .5px; }
+
+        .eventos { list-style: none; margin: 0; padding: 0; max-height: 260px; overflow-y: auto; }
+        .eventos li { display: flex; gap: 10px; padding: 8px 14px; border-bottom: 1px solid var(--borde); font-size: 12.5px; }
+        .eventos li:last-child { border-bottom: 0; }
+        .eventos .hora { color: var(--tenue); flex: none; }
+        .eventos .txt { min-width: 0; }
+        .eventos .vacio { color: var(--tenue); justify-content: center; }
+        .ev-error .txt { color: #ff8a8a; }
+        .ev-aviso .txt { color: var(--aviso); }
+        .ev-ok .txt { color: var(--ok); }
+
+        .capturas { margin-top: 18px; }
+        .capturas-lista { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; padding: 12px 14px; }
+        .captura { position: relative; display: block; border-radius: 6px; overflow: hidden; border: 1px solid var(--borde); }
+        .captura img { width: 100%; display: block; }
+        .captura span { position: absolute; left: 0; right: 0; bottom: 0; padding: 14px 8px 5px; font-size: 11px; background: linear-gradient(transparent, rgba(0,0,0,.8)); }
+
+        #toasts { position: fixed; top: 68px; right: 16px; z-index: 100; display: flex; flex-direction: column; gap: 8px; max-width: 360px; }
         .toast {
-            background: var(--panel);
-            border: 1px solid var(--error);
-            border-left-width: 4px;
-            border-radius: 6px;
-            padding: 10px 14px;
-            font-size: 13px;
-            box-shadow: 0 4px 16px rgba(0,0,0,.4);
-            animation: entrar-toast .2s ease-out;
+            background: var(--surface-2); border: 1px solid var(--borde-fuerte); border-left: 4px solid var(--error);
+            border-radius: 8px; padding: 10px 14px; font-size: 13px; box-shadow: var(--sombra);
+            animation: entrar .2s ease-out;
         }
         .toast strong { display: block; margin-bottom: 2px; }
         .toast .toast-sub { color: var(--suave); font-size: 12px; }
-        @keyframes entrar-toast {
-            from { transform: translateX(20px); opacity: 0; }
-            to { transform: translateX(0); opacity: 1; }
-        }
+        @keyframes entrar { from { transform: translateX(20px); opacity: 0; } to { transform: none; opacity: 1; } }
 
-        /* --- Semáforo virtual / gestión --- */
-        .gestion {
-            margin-top: 14px;
-            padding-top: 14px;
-            border-top: 1px solid var(--borde);
+        @media (max-width: 1280px) {
+            .layout { grid-template-columns: 1fr; }
+            .col-lateral { position: static; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
         }
-        .gestion h2 { font-size: 14px; margin: 0 0 4px; }
-        .gestion-sub { font-size: 12px; color: var(--suave); margin: 0 0 12px; }
-        .accesos { display: flex; flex-direction: column; gap: 8px; }
-        .acceso {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 8px 10px;
-            border: 1px solid var(--borde);
-            border-radius: 6px;
-        }
-        .acceso.favorecido { border-color: var(--acento); }
-        .semaforo-luces { display: flex; flex-direction: column; gap: 3px; }
-        .semaforo-luces span {
-            width: 10px; height: 10px; border-radius: 50%;
-            background: #333a48; display: block;
-        }
-        .semaforo-luces span.on-rojo { background: var(--error); }
-        .semaforo-luces span.on-amarillo { background: #eab308; }
-        .semaforo-luces span.on-verde { background: var(--ok); }
-        .acceso-info { flex: 1; }
-        .acceso-nombre { font-size: 13px; font-weight: 600; }
-        .acceso-datos { font-size: 11px; color: var(--suave); }
-        .acceso-tiempo { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
-        .gestion-justificacion {
-            margin-top: 10px;
-            font-size: 12px;
-            color: var(--suave);
-            font-style: italic;
+        @media (max-width: 860px) {
+            .kpis { grid-template-columns: repeat(2, 1fr); }
+            .grid-camaras, .grid-camaras.enfoque { grid-template-columns: 1fr; }
+            .col-lateral { grid-template-columns: 1fr; }
+            .topbar { padding: 0 14px; }
+            .contenedor { padding: 14px; }
+            .reloj, .estado-sistema { display: none; }
+            .toolbar .sep { display: none; }
         }
     </style>
 </head>
 <body>
-<header>
-    <h1>🚦 Gestor de Tráfico</h1>
-    <a href="/admin/">Administración</a>
+
+<header class="topbar">
+    <div class="brand">
+        <div class="brand-logo" aria-hidden="true">
+            <svg class="ico" viewBox="0 0 24 24" style="stroke-width:2"><rect x="8" y="2" width="8" height="20" rx="3"/><circle cx="12" cy="7" r="1.2" fill="currentColor"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/><circle cx="12" cy="17" r="1.2" fill="currentColor"/></svg>
+        </div>
+        <div>
+            <h1>Gestor de Tráfico</h1>
+            <p id="subtituloInterseccion">Centro de monitoreo</p>
+        </div>
+    </div>
+    <div class="topbar-right">
+        <div class="estado-sistema"><span class="dot" id="puntoSistema"></span><span id="textoSistema">Sin cámaras activas</span></div>
+        <span class="reloj num" id="reloj">—</span>
+        <a class="link-admin" href="/admin/">
+            <svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h0a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5h0a1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v0a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+            Administración
+        </a>
+    </div>
 </header>
 
 <div id="toasts" aria-live="polite"></div>
 
-<main>
-    <section class="panel">
-        <div class="visor">
-            <video id="video" autoplay playsinline muted></video>
-            <canvas id="overlay"></canvas>
-            <div class="badge"><span class="punto" id="punto"></span><span id="estadoBadge">Sin señal</span></div>
-        </div>
-        <p id="mensaje"></p>
+<div class="contenedor">
 
-        <div id="panelAnalisis" class="analisis">
-            <div class="analisis-item">
-                <span class="analisis-label">Ritmo actual</span>
-                <span class="analisis-valor" id="anRitmo">—</span>
-                <span class="analisis-sub">veh/min</span>
-            </div>
-            <div class="analisis-item">
-                <span class="analisis-label">vs. histórico mismo horario</span>
-                <span class="analisis-valor" id="anVariacion">—</span>
-                <span class="analisis-sub" id="anHistorico">—</span>
-            </div>
-            <div class="analisis-item">
-                <span class="analisis-label">Estado</span>
-                <span class="analisis-valor" id="anCongestion">—</span>
-                <span class="analisis-sub" id="anHoraPico">—</span>
-            </div>
+    <section class="kpis" aria-label="Resumen">
+        <div class="kpi">
+            <div class="kpi-label">Cámaras en vivo</div>
+            <div class="kpi-valor num"><span id="kpiVivas">0</span><small id="kpiTotal">/ 0</small></div>
+            <div class="kpi-sub">con señal de video activa</div>
         </div>
-
-        <div id="panelGestion" class="gestion">
-            <h2>Gestión de semáforo (simulación)</h2>
-            <p class="gestion-sub">Compara el tráfico entre los accesos de esta intersección y sugiere tiempos de verde. No controla semáforos reales.</p>
-            <div id="accesosSemaforo" class="accesos"></div>
-            <p id="gestionJustificacion" class="gestion-justificacion">Selecciona una cámara registrada para ver la gestión de su intersección.</p>
+        <div class="kpi">
+            <div class="kpi-label">Vehículos cruzados</div>
+            <div class="kpi-valor num" id="kpiCruces">0</div>
+            <div class="kpi-sub">suma de todas las cámaras (sesión)</div>
+        </div>
+        <div class="kpi">
+            <div class="kpi-label">Flujo total</div>
+            <div class="kpi-valor num"><span id="kpiRitmo">—</span><small>veh/min</small></div>
+            <div class="kpi-sub">promedio de los últimos 5 min</div>
+        </div>
+        <div class="kpi">
+            <div class="kpi-label">Estado de la red</div>
+            <div class="kpi-valor ok" id="kpiEstado">Fluido</div>
+            <div class="kpi-sub" id="kpiEstadoSub">sin congestión detectada</div>
         </div>
     </section>
 
-    <aside class="panel">
-        <label for="camaraSistema">Cámara registrada (ubicación)</label>
-        <select id="camaraSistema">
-            {% for cam in camaras %}
-            <option value="{{ cam.id }}" data-interseccion-id="{{ cam.interseccion_id }}">{{ cam.nombre }} — {{ cam.interseccion.nombre }}</option>
-            {% empty %}
-            <option value="">Sin cámaras registradas (créalas en /admin/)</option>
-            {% endfor %}
-        </select>
+    <section class="toolbar" aria-label="Controles generales">
+        <div class="grupo">
+            <button class="btn primario" id="btnIniciarTodas">
+                <svg class="ico" viewBox="0 0 24 24"><polygon points="6 4 20 12 6 20 6 4" fill="currentColor"/></svg>
+                Iniciar todas
+            </button>
+            <button class="btn" id="btnDetenerTodas" disabled>
+                <svg class="ico" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5" fill="currentColor"/></svg>
+                Detener todas
+            </button>
+        </div>
+        <span class="sep"></span>
+        <label class="campo" for="resolucion">Resolución
+            <select id="resolucion">
+                <option value="640x480">640 × 480</option>
+                <option value="1280x720" selected>1280 × 720 (HD)</option>
+                <option value="1920x1080">1920 × 1080 (Full HD)</option>
+            </select>
+        </label>
+        <label class="campo" for="fpsEnvio">Envío al servidor
+            <select id="fpsEnvio">
+                <option value="5">5 fps</option>
+                <option value="10" selected>10 fps</option>
+                <option value="15">15 fps</option>
+                <option value="20">20 fps</option>
+            </select>
+        </label>
+        <span class="espacio"></span>
+        <button class="btn" id="btnSalirEnfoque" hidden>
+            <svg class="ico" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+            Ver cuadrícula
+        </button>
+    </section>
 
-        <label for="selector">Dispositivo de video</label>
-        <select id="selector"></select>
+    <div class="layout">
+        <main>
+            <section class="grid-camaras" id="gridCamaras" aria-label="Cámaras"></section>
 
-        <label for="resolucion">Resolución</label>
-        <select id="resolucion">
-            <option value="640x480">640 × 480</option>
-            <option value="1280x720" selected>1280 × 720 (HD)</option>
-            <option value="1920x1080">1920 × 1080 (Full HD)</option>
-        </select>
+            <section class="panel capturas" id="panelCapturas" hidden>
+                <div class="panel-cabecera"><h2>Capturas</h2><span>Clic en una imagen para descargarla</span></div>
+                <div class="capturas-lista" id="capturas"></div>
+            </section>
+        </main>
 
-        <button id="btnIniciar">Iniciar cámara</button>
-        <button id="btnDetener" class="sec" disabled>Detener</button>
-        <button id="btnCaptura" class="sec" disabled>Tomar captura</button>
+        <aside class="col-lateral">
+            <section class="panel">
+                <div class="panel-cabecera"><h2>Semáforo virtual</h2><span>Simulación</span></div>
+                <div class="panel-cuerpo">
+                    <p class="nota">Compara el tráfico entre los accesos de cada intersección y sugiere tiempos de verde. No controla semáforos reales.</p>
+                    <div id="gestionContenedor"></div>
+                </div>
+            </section>
 
-        <label for="intervaloDeteccion">Detección IA</label>
-        <select id="intervaloDeteccion">
-            <option value="0">Desactivada</option>
-            <option value="50">Cada 50 ms (~20 fps)</option>
-            <option value="100">Cada 100 ms (~10 fps)</option>
-            <option value="200" selected>Cada 200 ms (~5 fps)</option>
-            <option value="500">Cada 500 ms</option>
-            <option value="1000">Cada 1 s</option>
-        </select>
+            <section class="panel">
+                <div class="panel-cabecera"><h2>Registro de eventos</h2><span id="contadorEventos"></span></div>
+                <ul class="eventos" id="eventos"><li class="vacio">Sin eventos todavía</li></ul>
+            </section>
+        </aside>
+    </div>
+</div>
 
-        <dl>
-            <dt>Resolución real</dt><dd id="infoRes">—</dd>
-            <dt>FPS</dt><dd id="infoFps">—</dd>
-            <dt>Dispositivo</dt><dd id="infoDisp">—</dd>
-            <dt>Vehículos en escena</dt><dd id="infoVehiculos">—</dd>
-            <dt>Vehículos cruzados (sesión)</dt><dd id="infoCruces">—</dd>
-        </dl>
-        <button id="btnReiniciarConteo" class="sec">Reiniciar conteo</button>
-
-        <div id="capturas"></div>
-    </aside>
-</main>
+{{ camaras_json|json_script:"camaras-data" }}
 
 <script>
-const video = document.getElementById('video');
-const overlay = document.getElementById('overlay');
-const selector = document.getElementById('selector');
-const resolucion = document.getElementById('resolucion');
-const btnIniciar = document.getElementById('btnIniciar');
-const btnDetener = document.getElementById('btnDetener');
-const btnCaptura = document.getElementById('btnCaptura');
-const mensaje = document.getElementById('mensaje');
-const punto = document.getElementById('punto');
-const estadoBadge = document.getElementById('estadoBadge');
-const infoRes = document.getElementById('infoRes');
-const infoFps = document.getElementById('infoFps');
-const infoDisp = document.getElementById('infoDisp');
-const infoVehiculos = document.getElementById('infoVehiculos');
-const infoCruces = document.getElementById('infoCruces');
-const intervaloDeteccion = document.getElementById('intervaloDeteccion');
-const camaraSistema = document.getElementById('camaraSistema');
-const btnReiniciarConteo = document.getElementById('btnReiniciarConteo');
-const anRitmo = document.getElementById('anRitmo');
-const anVariacion = document.getElementById('anVariacion');
-const anHistorico = document.getElementById('anHistorico');
-const anCongestion = document.getElementById('anCongestion');
-const anHoraPico = document.getElementById('anHoraPico');
-const toasts = document.getElementById('toasts');
-const accesosSemaforo = document.getElementById('accesosSemaforo');
-const gestionJustificacion = document.getElementById('gestionJustificacion');
+// =====================================================================
+//  Configuración
+// =====================================================================
+const DATOS = JSON.parse(document.getElementById('camaras-data').textContent);
+const HUECOS_MINIMOS = 4;
+const LINEA_Y_FRAC = 0.5;              // fracción del alto donde va la línea de conteo
+const CALIDAD_JPEG = 0.9;              // 0.9 = buena calidad para YOLO (antes 0.75)
+const ANCHO_MAX_ENVIO = 1920;          // no reescalamos agresivamente; YOLO decide
+const UMBRAL_VARIACION_ALTA = 20;
 
-// Posición vertical de la línea virtual de conteo (fracción del alto,
-// 0 = arriba, 1 = abajo). Un vehículo se cuenta la primera vez que su
-// centro cruza esta línea.
-const LINEA_Y_FRAC = 0.5;
-let totalCruces = 0;
+// Backpressure: si el WebSocket tiene más de este número de bytes
+// encolados sin enviar, saltamos el frame para no acumular latencia.
+const WS_BUFFER_MAX = 1_500_000;
 
-let stream = null;
-let contadorFrames = 0;
-let ultimoTick = performance.now();
-let rafId = null;
+// Reintento de WebSocket si se cae la conexión.
+const WS_RECONEXION_MS_BASE = 1500;
+const WS_RECONEXION_MS_MAX = 15000;
 
-// --- Detección de vehículos con YOLO (backend) ---
-const canvasCaptura = document.createElement('canvas'); // buffer oculto para extraer el frame como JPEG
-let detectando = false;       // evita mandar un frame nuevo mientras el anterior sigue en el servidor
-let timerDeteccion = null;
-let ultimasDetecciones = [];
+const ICONO_CAMARA_OFF = '<svg class="ico" viewBox="0 0 24 24"><path d="M16 16v1a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2m5.7 0H14a2 2 0 0 1 2 2v3.3l1 1L23 7v10"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+const ICONO_PLAY = '<svg class="ico" viewBox="0 0 24 24"><polygon points="6 4 20 12 6 20 6 4" fill="currentColor"/></svg>';
+const ICONO_STOP = '<svg class="ico" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5" fill="currentColor"/></svg>';
+const ICONO_FOTO = '<svg class="ico" viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>';
+const ICONO_REINICIAR = '<svg class="ico" viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10"/><path d="M3.5 15a9 9 0 1 0 2.1-9.4L1 10"/></svg>';
+const ICONO_EXPANDIR = '<svg class="ico" viewBox="0 0 24 24"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
 
-function colorPorClase(clase) {
-    const colores = {
-        auto: '#3b82f6', camion: '#f59e0b', autobus: '#a855f7',
-        moto: '#ef4444', bicicleta: '#22c55e'
-    };
-    return colores[clase] || '#e6e8ee';
+const COLORES_CLASE = { auto: '#4f8cff', camion: '#f5a524', autobus: '#a855f7', moto: '#ef4a4a', bicicleta: '#2fbf71' };
+
+// =====================================================================
+//  Utilidades
+// =====================================================================
+const $ = (id) => document.getElementById(id);
+const escapar = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const gridCamaras = $('gridCamaras');
+const resolucionSel = $('resolucion');
+const fpsEnvioSel = $('fpsEnvio');
+const btnIniciarTodas = $('btnIniciarTodas');
+const btnDetenerTodas = $('btnDetenerTodas');
+const btnSalirEnfoque = $('btnSalirEnfoque');
+
+const camaras = new Map();
+let dispositivos = [];
+
+// URL del WebSocket: derivada del origen actual (ws:// o wss://).
+function urlWebSocket() {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${proto}//${location.host}/ws/trafico/`;
 }
 
-// Ancho máximo del frame que se manda a analizar. El video se ve a full
-// resolución en pantalla; para YOLO no hace falta: menos píxeles = menos
-// bytes que viajar por red y menos trabajo de reescalado en el servidor.
-const ANCHO_MAX_DETECCION = 960;
-
-async function enviarFrameADetectar() {
-    if (!stream || detectando) return;
-    if (!camaraSistema.value) {
-        setMensaje('Selecciona una cámara registrada (con ubicación) para poder contar y analizar tráfico.', true);
-        return;
-    }
-    detectando = true;
-    const t0 = performance.now();
-    try {
-        const escala = Math.min(1, ANCHO_MAX_DETECCION / video.videoWidth);
-        canvasCaptura.width = Math.round(video.videoWidth * escala);
-        canvasCaptura.height = Math.round(video.videoHeight * escala);
-        canvasCaptura.getContext('2d').drawImage(video, 0, 0, canvasCaptura.width, canvasCaptura.height);
-        const tCaptura = performance.now();
-
-        const blob = await new Promise(res => canvasCaptura.toBlob(res, 'image/jpeg', 0.75));
-        if (!blob) return;
-        const tBlob = performance.now();
-
-        const formData = new FormData();
-        formData.append('frame', blob, 'frame.jpg');
-        formData.append('camara_id', camaraSistema.value);
-        formData.append('linea_y_frac', LINEA_Y_FRAC);
-
-        const resp = await fetch('/detectar/', { method: 'POST', body: formData });
-        const tFetch = performance.now();
-        if (!resp.ok) throw new Error('HTTP ' + resp.status);
-        const data = await resp.json();
-        if (data.error) throw new Error(data.error);
-
-        ultimasDetecciones = data.detecciones || [];
-        infoVehiculos.textContent = ultimasDetecciones.length;
-        totalCruces = data.total_sesion ?? totalCruces;
-        infoCruces.textContent = totalCruces;
-        dibujarDetecciones();
-        const tFin = performance.now();
-
-        console.log(
-            `[cliente] captura=${(tCaptura-t0).toFixed(0)}ms  ` +
-            `jpeg=${(tBlob-tCaptura).toFixed(0)}ms  ` +
-            `red+servidor=${(tFetch-tBlob).toFixed(0)}ms  ` +
-            `dibujo=${(tFin-tFetch).toFixed(0)}ms  ` +
-            `TOTAL=${(tFin-t0).toFixed(0)}ms  ` +
-            `(peso frame=${(blob.size/1024).toFixed(0)}KB)`
-        );
-    } catch (err) {
-        setMensaje('Error en detección IA: ' + err.message, true);
-    } finally {
-        detectando = false;
-    }
-}
-
-function dibujarDetecciones() {
-    const ctx = overlay.getContext('2d');
-    ctx.clearRect(0, 0, overlay.width, overlay.height);
-
-    // Línea virtual de conteo: referencia visual de dónde se cuenta el cruce.
-    const yLinea = overlay.height * LINEA_Y_FRAC;
-    ctx.strokeStyle = 'rgba(59,130,246,.6)';
-    ctx.setLineDash([8, 6]);
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(0, yLinea);
-    ctx.lineTo(overlay.width, yLinea);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    // El frame que se analiza puede ir más chico que el overlay (ver
-    // ANCHO_MAX_DETECCION), así que reescalamos las cajas de vuelta.
-    const factor = canvasCaptura.width ? overlay.width / canvasCaptura.width : 1;
-    ultimasDetecciones.forEach(d => {
-        const x1 = d.x1 * factor, y1 = d.y1 * factor;
-        const x2 = d.x2 * factor, y2 = d.y2 * factor;
-        const color = d.cruzo ? '#22c55e' : colorPorClase(d.clase);
-        ctx.strokeStyle = color;
-        ctx.lineWidth = d.cruzo ? 3 : 2;
-        ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
-
-        const etiqueta = `#${d.id} ${d.clase} ${(d.confianza * 100).toFixed(0)}%`;
-        ctx.font = '13px system-ui, sans-serif';
-        const ancho = ctx.measureText(etiqueta).width + 8;
-        ctx.fillStyle = color;
-        ctx.fillRect(x1, Math.max(0, y1 - 18), ancho, 18);
-        ctx.fillStyle = '#0f1115';
-        ctx.fillText(etiqueta, x1 + 4, Math.max(12, y1 - 5));
+// =====================================================================
+//  Reloj y estado general
+// =====================================================================
+function actualizarReloj() {
+    $('reloj').textContent = new Date().toLocaleString('es-MX', {
+        weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit'
     });
 }
+setInterval(actualizarReloj, 1000);
+actualizarReloj();
 
-function reiniciarTimerDeteccion() {
-    if (timerDeteccion) clearInterval(timerDeteccion);
-    timerDeteccion = null;
-    const ms = Number(intervaloDeteccion.value);
-    if (ms > 0 && stream) {
-        timerDeteccion = setInterval(enviarFrameADetectar, ms);
+function camarasVivas() { return [...camaras.values()].filter((c) => c.stream); }
+function camarasConWs() { return [...camaras.values()].filter((c) => c.ws && c.ws.readyState === WebSocket.OPEN); }
+
+function actualizarResumen() {
+    const vivas = camarasVivas().length;
+    $('kpiVivas').textContent = vivas;
+    $('kpiTotal').textContent = '/ ' + camaras.size;
+    $('kpiCruces').textContent = [...camaras.values()].reduce((s, c) => s + (c.cruces || 0), 0);
+
+    const ritmos = [...camaras.values()].map((c) => c.ritmo).filter((r) => typeof r === 'number');
+    $('kpiRitmo').textContent = ritmos.length ? ritmos.reduce((a, b) => a + b, 0).toFixed(1) : '—';
+
+    const enCongestion = [...camaras.values()].filter((c) => c.congestion);
+    const kpiEstado = $('kpiEstado');
+    if (enCongestion.length) {
+        kpiEstado.textContent = 'Congestión';
+        kpiEstado.className = 'kpi-valor error';
+        $('kpiEstadoSub').textContent = enCongestion.map((c) => c.info.nombre).join(', ');
     } else {
-        ultimasDetecciones = [];
-        infoVehiculos.textContent = '—';
-        overlay.getContext('2d').clearRect(0, 0, overlay.width, overlay.height);
+        kpiEstado.textContent = 'Fluido';
+        kpiEstado.className = 'kpi-valor ok';
+        $('kpiEstadoSub').textContent = 'sin congestión detectada';
     }
+
+    $('puntoSistema').className = 'dot ' + (enCongestion.length ? 'error' : vivas ? 'ok' : '');
+    $('textoSistema').textContent = enCongestion.length
+        ? `Congestión en ${enCongestion.length} cámara${enCongestion.length > 1 ? 's' : ''}`
+        : vivas ? `${vivas} cámara${vivas > 1 ? 's' : ''} en vivo` : 'Sin cámaras activas';
+
+    btnDetenerTodas.disabled = vivas === 0;
+    btnIniciarTodas.disabled = vivas === camaras.size && camaras.size > 0;
 }
 
-intervaloDeteccion.addEventListener('change', reiniciarTimerDeteccion);
-
-// --- Panel de análisis: se consulta aparte del ciclo de detección,
-// cada 15s, porque agrega sobre minutos completos y no tiene sentido
-// pedirlo en cada frame. ---
-let timerAnalisis = null;
-
-async function actualizarAnalisis() {
-    if (!camaraSistema.value) return;
-    try {
-        const resp = await fetch(`/camaras/${camaraSistema.value}/analisis/`);
-        if (!resp.ok) return;
-        const a = await resp.json();
-
-        anRitmo.textContent = a.ritmo_por_minuto ?? '—';
-
-        if (a.promedio_historico_mismo_horario) {
-            anHistorico.textContent = `hist: ${a.promedio_historico_mismo_horario}/min`;
-            const signo = a.variacion_pct >= 0 ? '+' : '';
-            anVariacion.textContent = `${signo}${a.variacion_pct}%`;
-            anVariacion.className = 'analisis-valor ' + (a.variacion_pct > 20 ? 'alerta' : '');
-        } else {
-            anHistorico.textContent = 'aún sin histórico suficiente';
-            anVariacion.textContent = '—';
-            anVariacion.className = 'analisis-valor';
-        }
-
-        anCongestion.textContent = a.congestion ? 'Congestión' : 'Fluido';
-        anCongestion.className = 'analisis-valor ' + (a.congestion ? 'alerta' : 'ok');
-        anHoraPico.textContent = a.hora_pico_hoy
-            ? `pico hoy: ${a.hora_pico_hoy.hora}:00 (${a.hora_pico_hoy.vehiculos} veh.)`
-            : 'sin datos de hoy aún';
-    } catch (err) {
-        // El análisis es un extra informativo; si falla no interrumpimos el monitoreo.
-        console.warn('No se pudo actualizar el análisis:', err);
-    }
+// =====================================================================
+//  Registro de eventos
+// =====================================================================
+const eventos = [];
+function registrarEvento(texto, tipo = '') {
+    eventos.unshift({ hora: new Date().toLocaleTimeString('es-MX', { hour12: false }), texto, tipo });
+    if (eventos.length > 40) eventos.pop();
+    $('eventos').innerHTML = eventos.map((e) =>
+        `<li class="${e.tipo ? 'ev-' + e.tipo : ''}"><span class="hora num">${e.hora}</span><span class="txt">${escapar(e.texto)}</span></li>`
+    ).join('');
+    $('contadorEventos').textContent = eventos.length + ' recientes';
 }
-
-function reiniciarTimerAnalisis() {
-    if (timerAnalisis) clearInterval(timerAnalisis);
-    timerAnalisis = setInterval(actualizarAnalisis, 15000);
-    actualizarAnalisis();
-}
-
-btnReiniciarConteo.addEventListener('click', async () => {
-    if (!camaraSistema.value) return;
-    try {
-        await fetch(`/camaras/${camaraSistema.value}/reiniciar/`, { method: 'POST' });
-        totalCruces = 0;
-        infoCruces.textContent = '0';
-    } catch (err) {
-        setMensaje('No se pudo reiniciar el conteo: ' + err.message, true);
-    }
-});
-
-// --- Notificaciones de congestión ---
-// Se consultan TODAS las cámaras (no solo la seleccionada) cada 20s,
-// para poder avisar de congestión en otra cámara aunque estés viendo
-// otra en pantalla. Se guarda qué alertas ya se mostraron para no
-// repetir el mismo toast en cada poll mientras la congestión sigue activa.
-const alertasYaMostradas = new Set();
-let timerAlertas = null;
 
 function mostrarToast(titulo, subtitulo) {
     const el = document.createElement('div');
     el.className = 'toast';
-    el.innerHTML = `<strong>${titulo}</strong><span class="toast-sub">${subtitulo}</span>`;
-    toasts.appendChild(el);
+    el.innerHTML = `<strong>${escapar(titulo)}</strong><span class="toast-sub">${escapar(subtitulo)}</span>`;
+    el.style.cursor = 'pointer';
+    el.title = 'Clic para cerrar';
+    el.addEventListener('click', () => el.remove());
+    $('toasts').appendChild(el);
     setTimeout(() => el.remove(), 10000);
 }
+
+// =====================================================================
+//  Construcción de la cuadrícula de cámaras
+// =====================================================================
+function construirTile(info) {
+    const el = document.createElement('article');
+    el.className = 'tile';
+    el.innerHTML = `
+        <div class="tile-cabecera">
+            <div class="tile-titulo">
+                <span class="dot" data-r="punto"></span>
+                <div style="min-width:0">
+                    <h3>${escapar(info.nombre)}</h3>
+                    <p>${escapar(info.interseccion_nombre)}</p>
+                </div>
+            </div>
+            <div class="tile-cabecera-der">
+                <span class="chip" data-r="semaforo" hidden></span>
+                <button class="icon-btn" data-r="btnEnfocar" title="Ampliar esta cámara" aria-label="Ampliar ${escapar(info.nombre)}">${ICONO_EXPANDIR}</button>
+            </div>
+        </div>
+
+        <div class="visor" data-r="visor">
+            <video data-r="video" autoplay playsinline muted></video>
+            <canvas data-r="overlay"></canvas>
+            <div class="sin-senal" data-r="sinSenal">
+                ${ICONO_CAMARA_OFF}
+                <span data-r="textoSinSenal">Sin señal</span>
+            </div>
+            <div class="insignias">
+                <span class="insignia vivo"><span class="dot"></span>EN VIVO</span>
+                <span class="insignia alerta" data-r="insigniaAlerta" hidden>CONGESTIÓN</span>
+                <span class="insignia ws-off" data-r="insigniaWs" hidden>IA desconectada</span>
+            </div>
+            <div class="insignias" style="top:auto;bottom:10px;justify-content:flex-end">
+                <span class="insignia tecnica num" data-r="infoTecnica">—</span>
+            </div>
+        </div>
+
+        <div class="tile-stats">
+            <div class="stat"><div class="stat-label">En escena</div><div class="stat-valor num" data-r="stEscena">—</div></div>
+            <div class="stat"><div class="stat-label">Cruces</div><div class="stat-valor num" data-r="stCruces">—</div></div>
+            <div class="stat"><div class="stat-label">Veh/min</div><div class="stat-valor num" data-r="stRitmo">—</div></div>
+            <div class="stat"><div class="stat-label">vs. histórico</div><div class="stat-valor num" data-r="stVariacion">—</div></div>
+        </div>
+
+        <div class="tile-controles">
+            <select data-r="selDispositivo" aria-label="Dispositivo de video para ${escapar(info.nombre)}"></select>
+            <button class="btn primario" data-r="btnToggle">${ICONO_PLAY} Iniciar</button>
+            <button class="icon-btn" data-r="btnCaptura" title="Tomar captura" aria-label="Tomar captura" disabled>${ICONO_FOTO}</button>
+            <button class="icon-btn" data-r="btnReiniciar" title="Reiniciar conteo" aria-label="Reiniciar conteo">${ICONO_REINICIAR}</button>
+        </div>
+        <p class="tile-msg" data-r="msg"></p>
+    `;
+    return el;
+}
+
+function construirTileVacio(n) {
+    const el = document.createElement('article');
+    el.className = 'tile vacia';
+    el.innerHTML = `
+        <div class="tile-vacia-cuerpo">
+            ${ICONO_CAMARA_OFF}
+            <strong style="font-weight:600;color:var(--suave)">Espacio ${n} disponible</strong>
+            <span>Registra una cámara en <a href="/admin/camaras/camara/add/">Administración</a><br>para verla y controlarla aquí.</span>
+        </div>`;
+    return el;
+}
+
+function crearEstadoCamara(info, el) {
+    const r = {};
+    el.querySelectorAll('[data-r]').forEach((n) => { r[n.dataset.r] = n; });
+    return {
+        info, el, r,
+        stream: null,
+        ws: null,
+        wsReintento: 0,
+        wsTimer: null,
+        enviando: false,          // frame actual en camino al WS
+        canvasCaptura: document.createElement('canvas'),
+        cruces: 0,
+        ritmo: null,
+        congestion: false,
+        frames: 0,
+        rvfcActivo: false,
+        ultimoEnvio: 0,           // timestamp del último frame enviado (throttle fps)
+    };
+}
+
+function iniciarGrid() {
+    gridCamaras.innerHTML = '';
+    DATOS.forEach((info) => {
+        const el = construirTile(info);
+        gridCamaras.appendChild(el);
+        const c = crearEstadoCamara(info, el);
+        camaras.set(info.id, c);
+        enlazarEventos(c);
+    });
+    for (let i = DATOS.length; i < HUECOS_MINIMOS; i++) gridCamaras.appendChild(construirTileVacio(i + 1));
+
+    const nombresInterseccion = [...new Set(DATOS.map((d) => d.interseccion_nombre))];
+    if (nombresInterseccion.length) $('subtituloInterseccion').textContent = nombresInterseccion.join(' · ');
+    if (!DATOS.length) registrarEvento('No hay cámaras registradas. Créalas en Administración.', 'aviso');
+}
+
+function enlazarEventos(c) {
+    c.r.btnToggle.addEventListener('click', () => (c.stream ? detenerCamara(c) : iniciarCamara(c)));
+    c.r.btnCaptura.addEventListener('click', () => tomarCaptura(c));
+    c.r.btnReiniciar.addEventListener('click', () => reiniciarConteo(c));
+    c.r.btnEnfocar.addEventListener('click', () => alternarEnfoque(c));
+    c.r.visor.addEventListener('dblclick', () => alternarEnfoque(c));
+}
+
+// =====================================================================
+//  Modo enfoque
+// =====================================================================
+function alternarEnfoque(c) {
+    const yaEnfocada = c.el.classList.contains('enfocada');
+    salirEnfoque();
+    if (!yaEnfocada) {
+        gridCamaras.classList.add('enfoque');
+        c.el.classList.add('enfocada');
+        btnSalirEnfoque.hidden = false;
+    }
+}
+function salirEnfoque() {
+    gridCamaras.classList.remove('enfoque');
+    gridCamaras.querySelectorAll('.enfocada').forEach((n) => n.classList.remove('enfocada'));
+    btnSalirEnfoque.hidden = true;
+}
+btnSalirEnfoque.addEventListener('click', salirEnfoque);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') salirEnfoque(); });
+
+// =====================================================================
+//  Dispositivos de video
+// =====================================================================
+function mensajeError(err) {
+    switch (err.name) {
+        case 'NotAllowedError': return 'Permiso denegado. Habilita la cámara en el candado de la barra de direcciones.';
+        case 'NotFoundError': return 'No se encontró ninguna cámara conectada.';
+        case 'NotReadableError': return 'La cámara está en uso por otra aplicación u otra ventana.';
+        case 'OverconstrainedError': return 'La cámara no soporta esa resolución. Prueba con otra.';
+        default: return 'Error al abrir la cámara: ' + err.message;
+    }
+}
+
+function ponerMensaje(c, texto) { c.r.msg.textContent = texto || ''; }
+
+async function listarDispositivos() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        const t = 'Este navegador no permite acceso a cámara, o la página no está en HTTPS/localhost.';
+        camaras.forEach((c) => { c.r.textoSinSenal.innerHTML = `<span class="msg-error">${t}</span>`; c.r.btnToggle.disabled = true; });
+        registrarEvento(t, 'error');
+        return;
+    }
+    try {
+        const temp = await navigator.mediaDevices.getUserMedia({ video: true });
+        temp.getTracks().forEach((t) => t.stop());
+    } catch (err) {
+        const t = mensajeError(err);
+        camaras.forEach((c) => { c.r.textoSinSenal.innerHTML = `<span class="msg-error">${escapar(t)}</span>`; });
+        registrarEvento(t, 'error');
+        return;
+    }
+    const lista = await navigator.mediaDevices.enumerateDevices();
+    dispositivos = lista.filter((d) => d.kind === 'videoinput');
+
+    let i = 0;
+    camaras.forEach((c) => {
+        const sel = c.r.selDispositivo;
+        sel.innerHTML = '<option value="">Sin asignar</option>' + dispositivos.map((d, k) =>
+            `<option value="${escapar(d.deviceId)}">${escapar(d.label || 'Cámara ' + (k + 1))}</option>`
+        ).join('');
+        if (dispositivos[i]) sel.value = dispositivos[i].deviceId;
+        i++;
+    });
+    registrarEvento(`${dispositivos.length} dispositivo${dispositivos.length === 1 ? '' : 's'} de video detectado${dispositivos.length === 1 ? '' : 's'}.`);
+    if (dispositivos.length < camaras.size && camaras.size > 0) {
+        registrarEvento(`Hay ${camaras.size} cámaras registradas pero solo ${dispositivos.length} dispositivo(s) conectado(s).`, 'aviso');
+    }
+}
+
+// =====================================================================
+//  WebSocket por cámara
+// =====================================================================
+function conectarWs(c) {
+    if (c.ws && (c.ws.readyState === WebSocket.OPEN || c.ws.readyState === WebSocket.CONNECTING)) return;
+
+    const ws = new WebSocket(urlWebSocket());
+    ws.binaryType = 'arraybuffer';
+    c.ws = ws;
+
+    ws.addEventListener('open', () => {
+        c.wsReintento = 0;
+        c.r.insigniaWs.hidden = true;
+        ws.send(JSON.stringify({ tipo: 'identificar', camara_id: c.info.id }));
+    });
+
+    ws.addEventListener('message', (ev) => {
+        let msg;
+        try { msg = JSON.parse(ev.data); } catch { return; }
+
+        if (msg.tipo === 'listo' || msg.tipo === 'identificado') return;
+
+        if (msg.tipo === 'error') {
+            ponerMensaje(c, 'IA: ' + (msg.detalle || 'error desconocido'));
+            return;
+        }
+
+        if (msg.tipo === 'resultado') {
+            // El consumer devuelve detecciones con coords en el frame enviado
+            // (que es el frame NATIVO de la cámara, sin reescalar), así que
+            // las mapeamos directo al canvas del overlay.
+            c.detecciones = msg.detecciones || [];
+            const cont = msg.contador || {};
+            if (typeof cont.total_sesion === 'number') c.cruces = cont.total_sesion;if (typeof msg.total_sesion === 'number') c.cruces = msg.total_sesion;c.r.stEscena.textContent = c.detecciones.length;
+            c.r.stCruces.textContent = c.cruces;
+            ponerMensaje(c, '');
+            dibujar(c, msg.ancho, msg.alto);
+            actualizarResumen();
+        }
+    });
+
+    ws.addEventListener('close', () => {
+        if (c.ws !== ws) return; // ya se reemplazó por otro
+        c.r.insigniaWs.hidden = false;
+        if (!c.stream) return;   // el usuario detuvo: no reintentamos
+        const delay = Math.min(WS_RECONEXION_MS_MAX, WS_RECONEXION_MS_BASE * 2 ** c.wsReintento);
+        c.wsReintento++;
+        clearTimeout(c.wsTimer);
+        c.wsTimer = setTimeout(() => { if (c.stream) conectarWs(c); }, delay);
+    });
+
+    ws.addEventListener('error', () => {
+        // 'close' se encarga del reintento; aquí solo evitamos log ruidoso.
+    });
+}
+
+function cerrarWs(c) {
+    clearTimeout(c.wsTimer);
+    c.wsTimer = null;
+    if (c.ws) {
+        try { c.ws.close(); } catch {}
+        c.ws = null;
+    }
+    c.r.insigniaWs.hidden = true;
+}
+
+// =====================================================================
+//  Inicio / parada de cada cámara
+// =====================================================================
+async function iniciarCamara(c) {
+    if (c.stream) return true;
+    if (!c.r.selDispositivo.value) {
+        ponerMensaje(c, 'Selecciona un dispositivo de video para esta cámara.');
+        return false;
+    }
+    const [w, h] = resolucionSel.value.split('x').map(Number);
+    c.r.btnToggle.disabled = true;
+    try {
+        c.stream = await navigator.mediaDevices.getUserMedia({
+            video: { deviceId: { exact: c.r.selDispositivo.value }, width: { ideal: w }, height: { ideal: h } },
+            audio: false,
+        });
+    } catch (err) {
+        c.stream = null;
+        const t = mensajeError(err);
+        ponerMensaje(c, t);
+        registrarEvento(`${c.info.nombre}: ${t}`, 'error');
+        c.r.btnToggle.disabled = false;
+        return false;
+    }
+
+    const v = c.r.video;
+    v.srcObject = c.stream;
+    try { await v.play(); } catch (_) {}
+
+    const track = c.stream.getVideoTracks()[0];
+    const s = track.getSettings();
+    c.r.overlay.width = s.width || v.videoWidth;
+    c.r.overlay.height = s.height || v.videoHeight;
+    c.r.visor.style.aspectRatio = `${c.r.overlay.width} / ${c.r.overlay.height}`;
+    c.r.visor.style.setProperty('--ar', c.r.overlay.width / c.r.overlay.height);
+    c.r.infoTecnica.textContent = `${c.r.overlay.width}×${c.r.overlay.height}`;
+    c.resInfo = `${c.r.overlay.width}×${c.r.overlay.height}`;
+
+    c.r.visor.classList.add('en-vivo');
+    c.r.punto.className = 'dot ok';
+    c.r.selDispositivo.disabled = true;
+    c.r.btnToggle.innerHTML = ICONO_STOP + ' Detener';
+    c.r.btnToggle.classList.remove('primario');
+    c.r.btnToggle.disabled = false;
+    c.r.btnCaptura.disabled = false;
+    ponerMensaje(c, '');
+
+    c.frames = 0;
+    contarFrames(c);
+    conectarWs(c);
+    iniciarBucleEnvio(c);
+    registrarEvento(`${c.info.nombre}: transmisión iniciada (${c.resInfo}).`, 'ok');
+    actualizarResumen();
+    asegurarTimerGestion();
+    return true;
+}
+
+function detenerCamara(c, silencioso = false) {
+    c.enviando = false;
+    cerrarWs(c);
+    c.detecciones = [];
+    c.cruces = 0;
+    c.rvfcActivo = false;
+    if (c.stream) {
+        c.stream.getTracks().forEach((t) => t.stop());
+        c.stream = null;
+        if (!silencioso) registrarEvento(`${c.info.nombre}: transmisión detenida.`);
+    }
+    c.r.video.srcObject = null;
+    c.r.overlay.getContext('2d').clearRect(0, 0, c.r.overlay.width, c.r.overlay.height);
+    c.r.visor.classList.remove('en-vivo');
+    c.r.visor.style.aspectRatio = '';
+    c.r.visor.style.removeProperty('--ar');
+    c.r.textoSinSenal.textContent = 'Sin señal';
+    c.r.punto.className = 'dot';
+    c.r.selDispositivo.disabled = false;
+    c.r.btnToggle.innerHTML = ICONO_PLAY + ' Iniciar';
+    c.r.btnToggle.classList.add('primario');
+    c.r.btnToggle.disabled = false;
+    c.r.btnCaptura.disabled = true;
+    c.r.stEscena.textContent = '—';
+    c.r.stCruces.textContent = '—';
+    actualizarResumen();
+}
+
+// Cuenta fps reales que entrega la cámara (independiente del envío al WS).
+function contarFrames(c) {
+    const v = c.r.video;
+    if ('requestVideoFrameCallback' in v) {
+        c.rvfcActivo = true;
+        const paso = () => {
+            if (!c.rvfcActivo || !c.stream) return;
+            c.frames++;
+            v.requestVideoFrameCallback(paso);
+        };
+        v.requestVideoFrameCallback(paso);
+    }
+}
+setInterval(() => {
+    camaras.forEach((c) => {
+        if (!c.stream) return;
+        const fps = c.rvfcActivo ? c.frames : Math.round(c.stream.getVideoTracks()[0].getSettings().frameRate || 0);
+        c.frames = 0;
+        c.r.infoTecnica.textContent = `${c.resInfo} · ${fps} fps`;
+    });
+}, 1000);
+
+// =====================================================================
+//  Bucle de envío de frames al WebSocket
+//  - Toma el frame del <video> a resolución nativa (sin reescalar).
+//  - Lo comprime a JPEG 0.9.
+//  - Lo envía como binario por el WS, respetando backpressure.
+// =====================================================================
+function iniciarBucleEnvio(c) {
+    c.enviando = false;
+    const v = c.r.video;
+    const cv = c.canvasCaptura;
+    const ctx = cv.getContext('2d');
+
+    const paso = async () => {
+        if (!c.stream || !c.ws || c.ws.readyState !== WebSocket.OPEN) {
+            // Reintenta el bucle en un momento si seguimos vivos pero el WS aún no abre.
+            if (c.stream) requestAnimationFrame(paso);
+            return;
+        }
+
+        const fpsObjetivo = Number(fpsEnvioSel.value) || 10;
+        const intervalo = 1000 / fpsObjetivo;
+        const ahora = performance.now();
+        if (ahora - c.ultimoEnvio < intervalo) {
+            requestAnimationFrame(paso);
+            return;
+        }
+        c.ultimoEnvio = ahora;
+
+        // Backpressure: si el socket tiene mucho encolado, saltamos este frame.
+        if (c.ws.bufferedAmount > WS_BUFFER_MAX) {
+            requestAnimationFrame(paso);
+            return;
+        }
+
+        if (!v.videoWidth) { requestAnimationFrame(paso); return; }
+
+        // Resolución nativa (o el máximo permitido si la cámara es muy grande).
+        let w = v.videoWidth, h = v.videoHeight;
+        if (w > ANCHO_MAX_ENVIO) {
+            const k = ANCHO_MAX_ENVIO / w;
+            w = Math.round(w * k); h = Math.round(h * k);
+        }
+        if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+
+        ctx.drawImage(v, 0, 0, w, h);
+
+        const blob = await new Promise((res) => cv.toBlob(res, 'image/jpeg', CALIDAD_JPEG));
+        if (blob && c.ws && c.ws.readyState === WebSocket.OPEN && c.stream) {
+            // El servidor espera el frame crudo como binario. La línea de
+            // conteo se manda aparte (mensaje de control JSON) si la quieres
+            // configurable por cámara; por ahora el consumer usa su default.
+            try { c.ws.send(await blob.arrayBuffer()); } catch {}
+        }
+
+        if (c.stream) requestAnimationFrame(paso);
+    };
+
+    requestAnimationFrame(paso);
+}
+
+// =====================================================================
+//  Dibujo de detecciones en el overlay
+// =====================================================================
+function dibujar(c, anchoFrame, altoFrame) {
+    const ov = c.r.overlay;
+    const ctx = ov.getContext('2d');
+    ctx.clearRect(0, 0, ov.width, ov.height);
+    const k = Math.max(1, ov.width / 800);
+
+    // Línea virtual de conteo (informativa).
+    const yLinea = ov.height * LINEA_Y_FRAC;
+    ctx.strokeStyle = 'rgba(79,140,255,.75)';
+    ctx.setLineDash([10 * k, 7 * k]);
+    ctx.lineWidth = 2 * k;
+    ctx.beginPath(); ctx.moveTo(0, yLinea); ctx.lineTo(ov.width, yLinea); ctx.stroke();
+    ctx.setLineDash([]);
+
+    // El backend devuelve coords en píxeles del frame que enviamos
+    // (tamaño w×h conocido). El overlay puede tener otro tamaño CSS,
+    // pero como el <canvas> tiene el mismo tamaño que el frame (arriba
+    // en iniciarCamara), el factor suele ser 1. Aun así lo calculamos
+    // por si el envío cambió de tamaño (ANCHO_MAX_ENVIO).
+    const fw = anchoFrame || c.r.overlay.width;
+    const fh = altoFrame || c.r.overlay.height;
+    const fx = ov.width / fw;
+    const fy = ov.height / fh;
+
+    (c.detecciones || []).forEach((d) => {
+        const x1 = d.x1 * fx, y1 = d.y1 * fy, x2 = d.x2 * fx, y2 = d.y2 * fy;
+        const color = d.cruzo ? '#2fbf71' : (COLORES_CLASE[d.clase] || '#e8ebf2');
+        ctx.strokeStyle = color;
+        ctx.lineWidth = (d.cruzo ? 3.5 : 2.2) * k;
+        ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+
+        const etiqueta = `#${d.id} ${d.clase} ${(d.confianza * 100).toFixed(0)}%`;
+        const tam = 13 * k;
+        ctx.font = `600 ${tam}px system-ui, sans-serif`;
+        const ancho = ctx.measureText(etiqueta).width + 10 * k;
+        const alto = tam + 7 * k;
+        const yEt = Math.max(0, y1 - alto);
+        ctx.fillStyle = color;
+        ctx.fillRect(x1, yEt, ancho, alto);
+        ctx.fillStyle = '#0a0d13';
+        ctx.fillText(etiqueta, x1 + 5 * k, yEt + tam + 1 * k);
+    });
+}
+
+async function reiniciarConteo(c) {
+    try {
+        await fetch(`/camaras/${c.info.id}/reiniciar/`, { method: 'POST' });
+        // También avisamos al consumer por WS para que reinicie el tracker
+        // en memoria (si no, el siguiente frame rehidrata el estado viejo).
+        if (c.ws && c.ws.readyState === WebSocket.OPEN) {
+            c.ws.send(JSON.stringify({ tipo: 'reiniciar' }));
+        }
+        c.cruces = 0;
+        c.r.stCruces.textContent = c.stream ? '0' : '—';
+        c.detecciones = [];
+        if (c.stream) dibujar(c);
+        registrarEvento(`${c.info.nombre}: conteo reiniciado.`);
+        actualizarResumen();
+    } catch (err) {
+        ponerMensaje(c, 'No se pudo reiniciar el conteo: ' + err.message);
+    }
+}
+
+function tomarCaptura(c) {
+    const v = c.r.video;
+    const cv = document.createElement('canvas');
+    cv.width = v.videoWidth; cv.height = v.videoHeight;
+    const ctx = cv.getContext('2d');
+    ctx.drawImage(v, 0, 0);
+    ctx.drawImage(c.r.overlay, 0, 0, cv.width, cv.height);
+    const url = cv.toDataURL('image/jpeg', 0.9);
+    const marca = new Date();
+    const a = document.createElement('a');
+    a.className = 'captura';
+    a.href = url;
+    a.download = `${c.info.nombre.replace(/\s+/g, '_')}_${marca.toISOString().replace(/[:.]/g, '-')}.jpg`;
+    a.innerHTML = `<img alt="Captura de ${escapar(c.info.nombre)}" src="${url}"><span>${escapar(c.info.nombre)} · ${marca.toLocaleTimeString('es-MX', { hour12: false })}</span>`;
+    $('capturas').prepend(a);
+    $('panelCapturas').hidden = false;
+}
+
+// =====================================================================
+//  Controles generales
+// =====================================================================
+btnIniciarTodas.addEventListener('click', async () => {
+    btnIniciarTodas.disabled = true;
+    for (const c of camaras.values()) {
+        if (!c.stream && c.r.selDispositivo.value) {
+            await iniciarCamara(c);
+            await esperar(250);
+        }
+    }
+    actualizarResumen();
+});
+btnDetenerTodas.addEventListener('click', () => camaras.forEach((c) => detenerCamara(c)));
+window.addEventListener('beforeunload', () => camaras.forEach((c) => detenerCamara(c, true)));
+
+// Cambio de resolución: reinicia las cámaras vivas.
+resolucionSel.addEventListener('change', async () => {
+    for (const c of camarasVivas()) {
+        detenerCamara(c, true);
+        await iniciarCamara(c);
+        await esperar(250);
+    }
+});
+
+// Cambio de fps: no hace falta reiniciar el stream, el bucle lee el valor
+// en cada iteración. Solo lo registramos para que se vea en eventos.
+fpsEnvioSel.addEventListener('change', () => {
+    registrarEvento(`Envío al servidor ajustado a ${fpsEnvioSel.value} fps.`);
+});
+
+// =====================================================================
+//  Análisis por cámara (cada 15 s, solo lectura)
+// =====================================================================
+async function actualizarAnalisis() {
+    await Promise.all([...camaras.values()].map(async (c) => {
+        try {
+            const resp = await fetch(`/camaras/${c.info.id}/analisis/`);
+            if (!resp.ok) return;
+            const a = await resp.json();
+            c.ritmo = a.ritmo_por_minuto ?? null;
+            c.r.stRitmo.textContent = c.ritmo ?? '—';
+
+            const sv = c.r.stVariacion;
+            if (a.promedio_historico_mismo_horario) {
+                const signo = a.variacion_pct >= 0 ? '+' : '';
+                sv.textContent = `${signo}${a.variacion_pct}%`;
+                sv.className = 'stat-valor num' + (a.variacion_pct > UMBRAL_VARIACION_ALTA ? ' aviso' : '');
+            } else {
+                sv.textContent = '—';
+                sv.className = 'stat-valor num';
+            }
+            sv.title = a.promedio_historico_mismo_horario
+                ? `Histórico mismo horario: ${a.promedio_historico_mismo_horario} veh/min`
+                : 'Aún sin histórico suficiente';
+
+            c.congestion = !!a.congestion;
+            c.r.stRitmo.className = 'stat-valor num' + (c.congestion ? ' error' : '');
+        } catch (err) {
+            console.warn('Análisis no disponible:', err);
+        }
+    }));
+    actualizarResumen();
+}
+setInterval(actualizarAnalisis, 15000);
+
+// =====================================================================
+//  Alertas de congestión
+// =====================================================================
+const alertasMostradas = new Set();
 
 async function revisarAlertas() {
     try {
         const resp = await fetch('/alertas/');
         if (!resp.ok) return;
         const data = await resp.json();
-        const idsActivos = new Set();
+        const activas = new Set();
+        const nuevas = [];
 
-        (data.alertas || []).forEach(a => {
-            idsActivos.add(a.camara_id);
-            if (!alertasYaMostradas.has(a.camara_id)) {
-                alertasYaMostradas.add(a.camara_id);
-                mostrarToast(
-                    `🚨 Congestión: ${a.camara_nombre}`,
-                    `${a.interseccion_nombre} — ${a.ritmo_por_minuto} veh/min` +
-                    (a.variacion_pct != null ? ` (${a.variacion_pct > 0 ? '+' : ''}${a.variacion_pct}% vs. habitual)` : '')
-                );
+        (data.alertas || []).forEach((a) => {
+            activas.add(a.camara_id);
+            if (!alertasMostradas.has(a.camara_id)) {
+                alertasMostradas.add(a.camara_id);
+                nuevas.push(a);
+                registrarEvento(`Congestión en ${a.camara_nombre} · ${a.ritmo_por_minuto} veh/min`, 'error');
+            }
+        });
+        if (nuevas.length === 1) {
+            const a = nuevas[0];
+            mostrarToast(`Congestión: ${a.camara_nombre}`,
+                `${a.interseccion_nombre} — ${a.ritmo_por_minuto} veh/min` +
+                (a.variacion_pct != null ? ` (${a.variacion_pct > 0 ? '+' : ''}${a.variacion_pct}% vs. habitual)` : ''));
+        } else if (nuevas.length > 1) {
+            mostrarToast(`Congestión en ${nuevas.length} cámaras`,
+                nuevas.map((a) => `${a.camara_nombre} (${a.ritmo_por_minuto} veh/min)`).join(' · '));
+        }
+        [...alertasMostradas].forEach((id) => {
+            if (!activas.has(id)) {
+                alertasMostradas.delete(id);
+                const c = camaras.get(id);
+                if (c) registrarEvento(`${c.info.nombre}: el tráfico volvió a fluir.`, 'ok');
             }
         });
 
-        // Si una cámara dejó de estar en congestión, se libera su marca
-        // para poder volver a notificar si vuelve a congestionarse luego.
-        [...alertasYaMostradas].forEach(id => {
-            if (!idsActivos.has(id)) alertasYaMostradas.delete(id);
+        camaras.forEach((c) => {
+            const enAlerta = activas.has(c.info.id);
+            c.congestion = enAlerta;
+            c.el.classList.toggle('congestion', enAlerta);
+            c.r.insigniaAlerta.hidden = !enAlerta;
         });
+        actualizarResumen();
     } catch (err) {
         console.warn('No se pudieron revisar alertas:', err);
     }
 }
+setInterval(revisarAlertas, 20000);
 
-// Las alertas corren siempre, independientemente de si hay una cámara
-// de video activa en pantalla, porque son un monitoreo global.
-revisarAlertas();
-timerAlertas = setInterval(revisarAlertas, 20000);
-
-// --- Gestión de semáforo (simulación por reglas) ---
+// =====================================================================
+//  Semáforo virtual
+// =====================================================================
+const intersecciones = [...new Map(DATOS.map((d) => [d.interseccion_id, d.interseccion_nombre]))];
 let timerGestion = null;
 
-function claseFase(fase, colorObjetivo) {
-    return fase === colorObjetivo ? `on-${colorObjetivo}` : '';
+function asegurarTimerGestion() {
+    if (timerGestion) return;
+    actualizarGestion();
+    timerGestion = setInterval(() => {
+        if (camarasVivas().length === 0) { clearInterval(timerGestion); timerGestion = null; return; }
+        actualizarGestion();
+    }, 15000);
 }
+
+const luz = (fase, color) => (fase === color ? `on-${color}` : '');
 
 async function actualizarGestion() {
-    const opcion = camaraSistema.selectedOptions[0];
-    const interseccionId = opcion ? opcion.dataset.interseccionId : null;
-    if (!interseccionId) return;
+    const contenedor = $('gestionContenedor');
+    if (!intersecciones.length) {
+        contenedor.innerHTML = '<p class="nota" style="margin:0">Sin intersecciones con cámaras activas.</p>';
+        return;
+    }
+    const bloques = await Promise.all(intersecciones.map(async ([id, nombre]) => {
+        try {
+            const resp = await fetch(`/intersecciones/${id}/gestion/`);
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
+            const g = await resp.json();
 
-    try {
-        const resp = await fetch(`/intersecciones/${interseccionId}/gestion/`);
-        if (!resp.ok) return;
-        const g = await resp.json();
+            (g.accesos || []).forEach((acc) => {
+                const c = camaras.get(acc.camara_id);
+                if (!c) return;
+                const chip = c.r.semaforo;
+                chip.hidden = false;
+                chip.className = 'chip ' + (acc.fase === 'verde' ? 'verde' : acc.fase === 'amarillo' ? 'amarillo' : 'rojo');
+                chip.innerHTML = `<span class="dot" style="background:currentColor;box-shadow:none"></span>${acc.fase === 'verde' ? 'Verde' : acc.fase === 'amarillo' ? 'Amarillo' : 'Rojo'} · ${acc.segundos_verde}s`;
+            });
 
-        gestionJustificacion.textContent = g.justificacion;
+            const accesos = (g.accesos || []).length
+                ? g.accesos.map((acc) => `
+                    <div class="acceso ${acc.fase === 'verde' ? 'favorecido' : ''}">
+                        <div class="luces">
+                            <span class="${luz(acc.fase, 'rojo')}"></span>
+                            <span class="${luz(acc.fase, 'amarillo')}"></span>
+                            <span class="${luz(acc.fase, 'verde')}"></span>
+                        </div>
+                        <div class="acceso-info">
+                            <div class="acceso-nombre">${escapar(acc.nombre)}</div>
+                            <div class="acceso-datos num">${acc.ritmo_por_minuto} veh/min${acc.congestion ? ' · congestión' : ''}</div>
+                        </div>
+                        <div class="acceso-tiempo num">${acc.segundos_verde}<small>s</small></div>
+                    </div>`).join('')
+                : '<p class="nota" style="margin:0">Sin cámaras activas en esta intersección.</p>';
 
-        if (!g.accesos || g.accesos.length === 0) {
-            accesosSemaforo.innerHTML = '<p class="gestion-sub">Sin cámaras activas en esta intersección.</p>';
-            return;
+            return `<div class="interseccion-bloque">
+                ${intersecciones.length > 1 ? `<h3>${escapar(nombre)}</h3>` : ''}
+                <div class="accesos">${accesos}</div>
+                <p class="justificacion">${escapar(g.justificacion || '')}</p>
+            </div>`;
+        } catch (err) {
+            console.warn('Gestión no disponible:', err);
+            return `<div class="interseccion-bloque"><p class="nota" style="margin:0">No se pudo cargar la gestión de «${escapar(nombre)}».</p></div>`;
         }
-
-        accesosSemaforo.innerHTML = g.accesos.map(acc => `
-            <div class="acceso ${acc.fase === 'verde' ? 'favorecido' : ''}">
-                <div class="semaforo-luces">
-                    <span class="${claseFase(acc.fase, 'rojo')}"></span>
-                    <span class="${claseFase(acc.fase, 'amarillo')}"></span>
-                    <span class="${claseFase(acc.fase, 'verde')}"></span>
-                </div>
-                <div class="acceso-info">
-                    <div class="acceso-nombre">${acc.nombre}${acc.congestion ? ' 🚨' : ''}</div>
-                    <div class="acceso-datos">${acc.ritmo_por_minuto} veh/min</div>
-                </div>
-                <div class="acceso-tiempo">${acc.segundos_verde}s</div>
-            </div>
-        `).join('');
-    } catch (err) {
-        console.warn('No se pudo actualizar la gestión de semáforo:', err);
-    }
+    }));
+    contenedor.innerHTML = bloques.join('');
 }
 
-function reiniciarTimerGestion() {
-    if (timerGestion) clearInterval(timerGestion);
-    timerGestion = setInterval(actualizarGestion, 15000);
-    actualizarGestion();
-}
-
-// La gestión también se recalcula si el usuario cambia de cámara
-// (y por lo tanto potencialmente de intersección) sin reiniciar el video.
-camaraSistema.addEventListener('change', actualizarGestion);
-
-function setMensaje(txt, esError = false) {
-    mensaje.textContent = txt;
-    mensaje.className = esError ? 'error' : '';
-}
-
-function setEstado(clase, texto) {
-    punto.className = 'punto ' + clase;
-    estadoBadge.textContent = texto;
-}
-
-async function listarCamaras() {
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        setMensaje('Este navegador no soporta acceso a cámara, o la página no está en HTTPS/localhost.', true);
-        btnIniciar.disabled = true;
-        return;
-    }
-    try {
-        // Permiso previo: sin esto enumerateDevices() no devuelve nombres
-        const temp = await navigator.mediaDevices.getUserMedia({ video: true });
-        temp.getTracks().forEach(t => t.stop());
-    } catch (err) {
-        setMensaje(mensajeError(err), true);
-        setEstado('error', 'Sin permiso');
-        return;
-    }
-    const dispositivos = await navigator.mediaDevices.enumerateDevices();
-    const camaras = dispositivos.filter(d => d.kind === 'videoinput');
-    selector.innerHTML = '';
-    camaras.forEach((d, i) => {
-        const op = document.createElement('option');
-        op.value = d.deviceId;
-        op.textContent = d.label || `Cámara ${i + 1}`;
-        selector.appendChild(op);
-    });
-    if (!camaras.length) setMensaje('No se detectó ninguna cámara.', true);
-}
-
-function mensajeError(err) {
-    switch (err.name) {
-        case 'NotAllowedError': return 'Permiso denegado. Habilita la cámara en el candado de la barra de direcciones.';
-        case 'NotFoundError': return 'No se encontró ninguna cámara conectada.';
-        case 'NotReadableError': return 'La cámara está siendo usada por otra aplicación.';
-        case 'OverconstrainedError': return 'La cámara no soporta esa resolución. Prueba con otra.';
-        default: return 'Error al abrir la cámara: ' + err.message;
-    }
-}
-
-async function iniciar() {
-    detener();
-    const [w, h] = resolucion.value.split('x').map(Number);
-    try {
-        stream = await navigator.mediaDevices.getUserMedia({
-            video: {
-                deviceId: selector.value ? { exact: selector.value } : undefined,
-                width: { ideal: w },
-                height: { ideal: h }
-            },
-            audio: false
-        });
-    } catch (err) {
-        setMensaje(mensajeError(err), true);
-        setEstado('error', 'Error');
-        return;
-    }
-    video.srcObject = stream;
-    await video.play();
-
-    const track = stream.getVideoTracks()[0];
-    const s = track.getSettings();
-    infoRes.textContent = `${s.width} × ${s.height}`;
-    infoDisp.textContent = track.label;
-    overlay.width = s.width;
-    overlay.height = s.height;
-
-    setEstado('activo', 'En vivo');
-    setMensaje('');
-    btnIniciar.disabled = true;
-    btnDetener.disabled = false;
-    btnCaptura.disabled = false;
-
-    contadorFrames = 0;
-    ultimoTick = performance.now();
-    bucleFrames();
-    reiniciarTimerDeteccion();
-    reiniciarTimerAnalisis();
-    reiniciarTimerGestion();
-}
-
-function detener() {
-    if (rafId) cancelAnimationFrame(rafId);
-    rafId = null;
-    if (timerDeteccion) clearInterval(timerDeteccion);
-    timerDeteccion = null;
-    if (timerAnalisis) clearInterval(timerAnalisis);
-    timerAnalisis = null;
-    if (timerGestion) clearInterval(timerGestion);
-    timerGestion = null;
-    // timerAlertas NO se detiene aquí a propósito: las notificaciones de
-    // congestión vigilan TODAS las cámaras, no solo la que se está viendo.
-    ultimasDetecciones = [];
-    totalCruces = 0;
-    if (stream) {
-        stream.getTracks().forEach(t => t.stop());
-        stream = null;
-    }
-    video.srcObject = null;
-    overlay.getContext('2d').clearRect(0, 0, overlay.width, overlay.height);
-    setEstado('', 'Sin señal');
-    infoRes.textContent = infoFps.textContent = infoDisp.textContent = '—';
-    infoVehiculos.textContent = infoCruces.textContent = '—';
-    btnIniciar.disabled = false;
-    btnDetener.disabled = true;
-    btnCaptura.disabled = true;
-}
-
-// Bucle por frame: solo cuenta FPS. La detección IA corre aparte (ver
-// reiniciarTimerDeteccion) para no acoplar el envío al backend al
-// refresco de pantalla.
-function bucleFrames() {
-    contadorFrames++;
-    const ahora = performance.now();
-    if (ahora - ultimoTick >= 1000) {
-        infoFps.textContent = contadorFrames;
-        contadorFrames = 0;
-        ultimoTick = ahora;
-    }
-    rafId = requestAnimationFrame(bucleFrames);
-}
-
-function tomarCaptura() {
-    const c = document.createElement('canvas');
-    c.width = video.videoWidth;
-    c.height = video.videoHeight;
-    c.getContext('2d').drawImage(video, 0, 0);
-    const img = new Image();
-    img.src = c.toDataURL('image/jpeg', 0.9);
-    document.getElementById('capturas').prepend(img);
-}
-
-btnIniciar.addEventListener('click', iniciar);
-btnDetener.addEventListener('click', detener);
-btnCaptura.addEventListener('click', tomarCaptura);
-window.addEventListener('beforeunload', detener);
-
-listarCamaras();
+// =====================================================================
+//  Arranque
+// =====================================================================
+iniciarGrid();
+actualizarResumen();
+listarDispositivos();
+actualizarAnalisis();
+revisarAlertas();
+actualizarGestion();
 </script>
 </body>
 </html>

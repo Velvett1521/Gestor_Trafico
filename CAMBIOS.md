@@ -62,3 +62,30 @@ python manage.py runserver
 ```
 
 Ver `python manage.py seed_historial --help` para todas las opciones.
+
+
+---
+
+# Rediseño de interfaz + 4 cámaras simultáneas
+
+## Interfaz (`camaras/templates/camaras/monitor.html`)
+
+- Nuevo diseño tipo centro de monitoreo: barra superior con estado del sistema y reloj,
+  tarjetas de resumen (cámaras en vivo, vehículos cruzados, flujo total, estado de la red),
+  barra de controles generales y panel lateral con el semáforo virtual y un registro de eventos.
+- **Cuadrícula de 4 cámaras**: cada una tiene su propio video, selector de dispositivo,
+  Iniciar/Detener, captura, reinicio de conteo y estadísticas (en escena, cruces, veh/min,
+  variación vs. histórico). También se pueden manejar todas juntas con "Iniciar todas" /
+  "Detener todas", y una cámara se puede ampliar (botón o doble clic; Esc para volver).
+- Cada tarjeta muestra la fase de su semáforo virtual y una insignia de congestión.
+- Las alertas simultáneas se agrupan en una sola notificación.
+- Las cajas de detección ahora coinciden con la imagen (el visor toma la proporción real de la cámara).
+- Si hay menos de 4 cámaras registradas, los huecos restantes quedan marcados como disponibles.
+- Resolución por defecto: 640×480 y detección cada 500 ms (4 cámaras a la vez; se puede subir en los selectores).
+
+## Backend
+
+- `camaras/deteccion.py`: antes había **un solo modelo YOLO compartido**, por lo que con varias
+  cámaras el tracker mezclaba los IDs entre ellas. Ahora cada cámara tiene su propia instancia
+  (y su propio lock), y "Reiniciar conteo" también reinicia el tracker de esa cámara.
+- `camaras/views.py`: la vista `monitor` pasa las cámaras ordenadas al template.

@@ -10,8 +10,23 @@ from .models import Camara, Interseccion
 
 
 def monitor(request):
-    camaras = Camara.objects.select_related('interseccion').filter(activa=True)
-    return render(request, 'camaras/monitor.html', {'camaras': camaras})
+    camaras = (
+        Camara.objects.select_related('interseccion')
+        .filter(activa=True)
+        .order_by('interseccion_id', 'id')
+    )
+    # Se serializa para que el JS construya una tarjeta de video por cámara
+    # (la interfaz está pensada para 4; si hay menos, muestra huecos vacíos).
+    camaras_json = [
+        {
+            'id': c.id,
+            'nombre': c.nombre,
+            'interseccion_id': c.interseccion_id,
+            'interseccion_nombre': c.interseccion.nombre,
+        }
+        for c in camaras
+    ]
+    return render(request, 'camaras/monitor.html', {'camaras': camaras, 'camaras_json': camaras_json})
 
 
 @csrf_exempt  # el frame se manda desde JS con fetch; se valida por otros medios en producción

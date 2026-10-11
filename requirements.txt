@@ -5,7 +5,8 @@ Django>=6.0,<7.0
 ultralytics>=8.4,<9.0
 lap>=0.5.12          # requerido por ByteTrack (tracker de ultralytics); sin esto /detectar/ falla con "No module named 'lap'"
 Pillow>=10.0          # decodifica el frame JPEG recibido antes de pasarlo a YOLO
-
+channels
+daphne
 # Nota: ultralytics instala PyTorch automáticamente como dependencia.
 # Si tienes GPU NVIDIA y quieres aceleración CUDA, instala torch con el
 # índice de PyTorch ANTES de este archivo:
