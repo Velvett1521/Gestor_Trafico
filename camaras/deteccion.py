@@ -110,7 +110,7 @@ def procesar_frame(camara_id: int, bytes_imagen: bytes, linea_y_frac: float = 0.
         conf=UMBRAL_CONFIANZA,
         classes=list(CLASES_VEHICULOS.keys()),
         imgsz=TAMANO_INFERENCIA,
-        half=(modelo.device.type == "cuda"),
+        quantize=(16 if modelo.device.type == "cuda" else None),  # antes: half=... (deprecado en ultralytics >= 8.4)
         persist=True,
         tracker="bytetrack.yaml",
     )

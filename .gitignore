@@ -1,5 +1,23 @@
+# Entorno virtual
 venv/
+env/
+.venv/
+
+# Python
 __pycache__/
 *.pyc
+*.pyo
+
+# Base de datos local
 db.sqlite3
+
+# Checkpoints de YOLO (se descargan solos la primera vez que corre deteccion.py)
+*.pt
+
+# Config local / secretos
 .env
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
